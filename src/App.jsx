@@ -330,9 +330,56 @@ function useShared(key, fallback) {
   return [value, persist, ready];
 }
 
+function sameEntry(a, b) {
+  return a.employee === b.employee && a.project === b.project && a.description === b.description &&
+    a.date === b.date && a.minutes === b.minutes;
+}
+
+function useEntries() {
+  const [entries, setLocal] = useState([]);
+  const [ready, setReady] = useState(false);
+  const ref = useRef([]);
+
+  useEffect(() => {
+    let mounted = true;
+    window.timeEntries.list()
+      .then((list) => {
+        if (!mounted) return;
+        console.log(`[load] time_entries: ${list.length} rows`);
+        ref.current = list; setLocal(list); setReady(true);
+      })
+      .catch((err) => {
+        console.error("[load] time_entries failed", err);
+        if (mounted) setReady(true);
+      });
+    return () => { mounted = false; };
+  }, []);
+
+  // Same call style as before: setEntries(nextArray). It saves only the differences.
+  const persist = async (next) => {
+    const prev = ref.current;
+    const prevMap = new Map(prev.map((e) => [e.id, e]));
+    const nextIds = new Set(next.map((e) => e.id));
+    const upserts = next.filter((e) => { const p = prevMap.get(e.id); return !p || !sameEntry(p, e); });
+    const removedIds = prev.filter((e) => !nextIds.has(e.id)).map((e) => e.id);
+
+    ref.current = next; setLocal(next);
+    try {
+      await window.timeEntries.upsert(upserts);
+      await window.timeEntries.remove(removedIds);
+    } catch (err) {
+      console.error("[save] time_entries failed", err);
+      ref.current = prev; setLocal(prev);
+      alert("Could not save to the database. Your change was not stored. Please try again.");
+    }
+  };
+
+  return [entries, persist, ready];
+}
+
 export default function App() {
   const [employees, setEmployees, employeesReady] = useShared("team-employees", []);
-  const [entries, setEntries, entriesReady] = useShared("entries-all", []);
+  const [entries, setEntries, entriesReady] = useEntries();
   const [runningTimers, setRunningTimers, timersReady] = useShared("timers-running", {});
   const [adminPin, setAdminPinState] = useState("");
   const [adminPinLoaded, setAdminPinLoaded] = useState(false);
@@ -755,6 +802,14 @@ function TimesheetTab({ me, employees, entries, setEntries, projectSuggestions }
   );
 }
 
+function LeftTick({ x, y, payload }) {
+  return (
+    <text x={0} y={y} dy={4} textAnchor="start" fontSize={11} fill="#12163E">
+      {payload.value}
+    </text>
+  );
+}
+
 function ReportsTab({ employees, entries, isAdmin, me }) {
   const [rangeMode, setRangeMode] = useState("week");
   const [customStart, setCustomStart] = useState(ymd(startOfWeek(new Date())));
@@ -837,10 +892,10 @@ function ReportsTab({ employees, entries, isAdmin, me }) {
           <div className="card" style={{ padding: 16 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-soft)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>Hours by employee</div>
             <ResponsiveContainer width="100%" height={Math.max(160, employeeData.length * 34)}>
-              <BarChart data={employeeData} layout="vertical" margin={{ left: 10, right: 20 }}>
+              <BarChart data={employeeData} layout="vertical" margin={{ left: -20, right: 20 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#E2E5F0" horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 11, fill: "#5B5F82" }} />
-                <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 11, fill: "#12163E" }} />
+                <YAxis type="category" dataKey="name" width={90} interval={0} tick={{ fontSize: 11, fill: "#12163E" }} />
                 <Tooltip contentStyle={{ fontSize: 12, borderRadius: 6, border: "1px solid #E2E5F0" }} />
                 <Bar dataKey="hours" fill="#3547E0" radius={[0, 4, 4, 0]} />
               </BarChart>
@@ -849,10 +904,10 @@ function ReportsTab({ employees, entries, isAdmin, me }) {
           <div className="card" style={{ padding: 16 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-soft)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>Hours by project</div>
             <ResponsiveContainer width="100%" height={Math.max(160, projectData.length * 34)}>
-              <BarChart data={projectData} layout="vertical" margin={{ left: 10, right: 20 }}>
+              <BarChart data={projectData} layout="vertical" margin={{ left: -55, right: 20 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#E2E5F0" horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 11, fill: "#5B5F82" }} />
-                <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11, fill: "#12163E" }} />
+                <YAxis type="category" dataKey="name" width={150} interval={0} tick={{ fontSize: 11, fill: "#12163E" }} />
                 <Tooltip contentStyle={{ fontSize: 12, borderRadius: 6, border: "1px solid #E2E5F0" }} />
                 <Bar dataKey="hours" fill="#C9821F" radius={[0, 4, 4, 0]} />
               </BarChart>
