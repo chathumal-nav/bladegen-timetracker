@@ -46,3 +46,51 @@ window.storage = {
  return { keys: data.map(d => d.key), prefix, shared: true }
  }
 }
+
+const toRow = (e) => ({
+  id: e.id,
+  employee: e.employee,
+  project: e.project,
+  description: e.description || '',
+  entry_date: e.date,
+  minutes: e.minutes,
+  created_at: e.createdAt,
+})
+const fromRow = (r) => ({
+  id: r.id,
+  employee: r.employee,
+  project: r.project || '',
+  description: r.description || '',
+  date: r.entry_date,
+  minutes: r.minutes,
+  createdAt: new Date(r.created_at).toISOString(),
+})
+
+window.timeEntries = {
+  async list() {
+    const all = []
+    const size = 1000 // Supabase returns at most 1000 rows per request
+    for (let from = 0; ; from += size) {
+      const { data, error } = await supabase
+        .from('time_entries').select('*')
+        .order('created_at', { ascending: false })
+        .range(from, from + size - 1)
+      if (error) throw error
+      all.push(...data)
+      if (data.length < size) break
+    }
+    return all.map(fromRow)
+  },
+  async upsert(entries) {
+    for (let i = 0; i < entries.length; i += 200) {
+      const { error } = await supabase.from('time_entries').upsert(entries.slice(i, i + 200).map(toRow))
+      if (error) throw error
+    }
+  },
+  async remove(ids) {
+    for (let i = 0; i < ids.length; i += 100) {
+      const { error } = await supabase.from('time_entries').delete().in('id', ids.slice(i, i + 100))
+      if (error) throw error
+    }
+  },
+}
