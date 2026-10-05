@@ -39,6 +39,25 @@ function formatClock(totalSeconds) {
 }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
+const LK_TIME = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Colombo",
+  year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", second: "2-digit",
+  hour12: false,
+});
+function toColombo(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d)) return String(iso);
+  const p = Object.fromEntries(LK_TIME.formatToParts(d).map((x) => [x.type, x.value]));
+  const hh = p.hour === "24" ? "00" : p.hour;
+  return `${p.year}-${p.month}-${p.day} ${hh}:${p.minute}:${p.second}`;
+}
+
+function byLoggedTime(a, b) {
+  return new Date(a.createdAt) - new Date(b.createdAt);
+}
+
 function csvCell(v) {
   let s = String(v ?? "");
   // stop spreadsheet apps from treating text as a formula
@@ -178,7 +197,7 @@ async function downloadXlsx(filename, rows) {
     { header: "Hours", key: "hours", width: 10, style: { numFmt: "0.00" } },
     { header: "Logged at", key: "createdAt", width: 26 },
   ];
-  rows.forEach((e) => s1.addRow({ date: e.date, employee: e.employee, project: e.project, description: e.description || "", minutes: e.minutes, hours: toHours(e.minutes), createdAt: e.createdAt }));
+  rows.forEach((e) => s1.addRow({ date: e.date, employee: e.employee, project: e.project, description: e.description || "", minutes: e.minutes, hours: toHours(e.minutes), createdAt: toColombo(e.createdAt) }));
   styleHeader(s1.getRow(1));
 
   // Sheet 2: hours per employee per project
@@ -272,6 +291,29 @@ const CSS = `
   background: var(--card); color: var(--ink); font-size: 13px; font-weight: 500;
   transition: background 0.12s, border-color 0.12s;
 }
+
+.ldg { width: 100%; min-height: 100vh; min-height: 100dvh; }
+.ldg-wrap {
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: clamp(12px, 3vw, 32px);
+}
+.ldg .app-logo { 
+height: clamp(44px, 6vw, 72px); width: auto; display: block; 
+}
+.ldg .timer-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+.ldg .timer-digits { font-size: clamp(32px, 9vw, 52px); }
+@media (max-width: 720px) {
+  .ldg .btn { padding: 9px 12px; }
+  .ldg .field { font-size: 16px; } /* stops iPhone zoom-on-focus */
+}
+
 .ldg .btn:hover { border-color: var(--ink-faint); }
 .ldg .btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
 .ldg .btn-primary { background: var(--brand); color: #F3F7F5; border-color: var(--brand); }
@@ -300,7 +342,10 @@ const CSS = `
   content: ""; position: absolute; top: 4px; right: 52px; width: 10px; height: 10px;
   border-radius: 50%; background: var(--brand-tint); pointer-events: none; z-index: 0;
 }
-.ldg .rec-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--amber); animation: ldg-pulse 1.6s ease-in-out infinite; }
+.ldg .stamp-card .timer-digits,
+.ldg .stamp-card .timer-label { text-align: center; }
+
+.ldg .rec-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--brick); animation: ldg-pulse 1.6s ease-in-out infinite; }
 @keyframes ldg-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .ldg table { border-collapse: collapse; width: 100%; font-size: 13px; }
 .ldg th { text-align: left; font-weight: 500; color: var(--ink-soft); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; padding: 8px 10px; border-bottom: 1px solid var(--line); }
@@ -455,16 +500,17 @@ export default function App() {
   }
 
   return (
-    <div className="ldg" style={{ padding: "1.25rem", maxWidth: 980, margin: "0 auto" }}>
-      <style>{CSS}</style>
+    <div className="ldg">
+  <style>{CSS}</style>
+  <div className="ldg-wrap">
 
       <header style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 18 }}>
         <div>
-          <img src={LOGO_SRC} alt="BladeGen" style={{ height: 34, display: "block" }} />
-          <p style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ink-soft)" }}>Team time tracking</p>
+          <img src={LOGO_SRC} alt="BladeGen" className="app-logo" />
+          <p style={{ margin: "6px 0 0", fontSize: 18, fontFamily: "var(--font-heading)", color: "var(--ink-soft)", fontWeight: "800" }}>Team time tracking</p>
         </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
-          <label style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--ink-faint)" }}>You are</label>
+          <label style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--ink-faint)", fontWeight: "600" }}>You are</label>
           <select className="field" style={{ width: 190 }} value={me} onChange={(e) => chooseMe(e.target.value)}>
             <option value="">Select your name…</option>
             {employees.map((emp) => <option key={emp} value={emp}>{emp}</option>)}
@@ -502,6 +548,7 @@ export default function App() {
         )
       )}
     </div>
+  </div>
   );
 }
 
@@ -626,26 +673,26 @@ function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunnin
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 18 }}>
-      <div className="stamp-card" style={{ padding: 24 }}>
+      <div className="stamp-card" style={{ padding: 50 }}>
         {myTimer ? (
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 10 }}>
               <span className="rec-dot" />
-              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--amber)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Recording</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--brick)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Recording</span>
             </div>
-            <div className="mono" style={{ fontSize: 44, fontWeight: 600, lineHeight: 1 }}>{formatClock(elapsedSec)}</div>
-            <div style={{ marginTop: 10, fontSize: 14, fontWeight: 500 }}>{myTimer.project}</div>
-            {myTimer.description && <div style={{ fontSize: 13, color: "var(--ink-soft)", marginTop: 2 }}>{myTimer.description}</div>}
-            <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
+            <div className="mono timer-digits" style={{ fontWeight: 600, lineHeight: 1 }}>{formatClock(elapsedSec)}</div>
+            <div style={{ marginTop: 10, fontSize: 14, fontWeight: 500, textAlign: "center" }}>{myTimer.project}</div>
+{myTimer.description && <div style={{ fontSize: 13, color: "var(--ink-soft)", marginTop: 2, textAlign: "center" }}>{myTimer.description}</div>}
+            <div style={{ display: "flex", gap: 8, marginTop: 18, justifyContent: "center" }}>
               <button className="btn btn-primary" onClick={stopTimer}><Square size={14} />Stop and save</button>
               <button className="btn" onClick={discardTimer}><X size={14} />Discard</button>
             </div>
           </div>
         ) : (
           <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-faint)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>Ready to track</div>
-            <div className="mono" style={{ fontSize: 44, fontWeight: 600, lineHeight: 1, color: "var(--ink-faint)" }}>00:00:00</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 16 }}>
+            <div className="timer-label" style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-faint)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>Ready to track</div>
+            <div className="mono timer-digits" style={{ fontWeight: 600, lineHeight: 1, color: "var(--ink-faint)" }}>00:00:00</div>
+            <div className="timer-fields">
               <div>
                 <label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Project</label>
                 <input className="field" list="proj-suggestions" placeholder="What project are you working on?" value={project} onChange={(e) => setProject(e.target.value)} style={{ marginTop: 4 }} />
@@ -659,12 +706,14 @@ function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunnin
               {projectSuggestions.map((p) => <option key={p} value={p} />)}
             </datalist>
             {error && <div style={{ display: "flex", gap: 6, alignItems: "center", color: "var(--brick)", fontSize: 12.5, marginTop: 8 }}><AlertCircle size={14} />{error}</div>}
-            <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={startTimer}><Play size={14} />Start timer</button>
+            <div style={{ display: "flex", justifyContent: "center" }}>
+  <button className="btn btn-primary" style={{ marginTop: 40 }} onClick={startTimer}><Play size={14} />Start timer</button>
+</div>
           </div>
         )}
       </div>
 
-      <div className="card" style={{ padding: 18 }}>
+      <div className="card" style={{ padding: 40 }}>
         <button className="btn" onClick={() => setManualOpen((v) => !v)}><Plus size={14} />Add time manually</button>
         {manualOpen && (
           <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 10 }}>
@@ -680,7 +729,7 @@ function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunnin
       </div>
 
       {others.length > 0 && (
-        <div className="card" style={{ padding: 16 }}>
+        <div className="card" style={{ padding: 40, paddingLeft:50, paddingRight: 100 }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-soft)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>Currently tracking</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {others.map(([emp, t]) => (
@@ -946,11 +995,11 @@ function AdminTab({ employees, setEmployees, entries, setEntries, runningTimers,
     if (exportFrom > exportTo) { setExportMsg("The 'From' date must be before the 'To' date."); return; }
     const rows = entries
       .filter((e) => e.date >= exportFrom && e.date <= exportTo)
-      .sort((a, b) => a.date.localeCompare(b.date) || a.employee.localeCompare(b.employee));
+      .sort(byLoggedTime);
     if (rows.length === 0) { setExportMsg("No entries in that date range."); return; }
     setExportMsg("");
     const header = ["Date", "Employee", "Project", "Description", "Minutes", "Hours", "Logged at"];
-    const data = rows.map((e) => [e.date, e.employee, e.project, e.description || "", e.minutes, minutesToHours(e.minutes), e.createdAt]);
+    const data = rows.map((e) => [e.date, e.employee, e.project, e.description || "", e.minutes, minutesToHours(e.minutes), toColombo(e.createdAt)]);
     const name = exportFrom === exportTo ? `time-entries-${exportFrom}.csv` : `time-entries-${exportFrom}_to_${exportTo}.csv`;
     downloadCSV(name, [header, ...data]);
   }
@@ -959,7 +1008,7 @@ function AdminTab({ employees, setEmployees, entries, setEntries, runningTimers,
     if (exportFrom > exportTo) { setExportMsg("The 'From' date must be before the 'To' date."); return; }
     const rows = entries
       .filter((e) => e.date >= exportFrom && e.date <= exportTo)
-      .sort((a, b) => a.date.localeCompare(b.date) || a.employee.localeCompare(b.employee));
+      .sort(byLoggedTime);
     if (rows.length === 0) { setExportMsg("No entries in that date range."); return; }
     setExportMsg("");
     const name = exportFrom === exportTo ? `time-entries-${exportFrom}.xlsx` : `time-entries-${exportFrom}_to_${exportTo}.xlsx`;
