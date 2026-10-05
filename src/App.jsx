@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
-import { Play, Square, Plus, Trash2, Clock, LayoutGrid, BarChart2, Settings, ChevronLeft, ChevronRight, Pencil, Check, X, AlertCircle, Lock, LogOut } from "lucide-react";
+import { Play, Square, Plus, Trash2, Clock, LayoutGrid, BarChart2, Settings, ChevronLeft, ChevronRight, Pencil, Check, X, AlertCircle, Lock, LogOut, Download } from "lucide-react";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -39,13 +39,193 @@ function formatClock(totalSeconds) {
 }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
-const DEFAULT_EMPLOYEES = ["Kusan", "Udula", "Chathumal", "Vishva", "Ranindu", "Hansama", "Devin", "Nethum", "Nithmi", "Sadeesh"];
+function csvCell(v) {
+  let s = String(v ?? "");
+  // stop spreadsheet apps from treating text as a formula
+  if (typeof v === "string" && /^[=+\-@]/.test(s)) s = "'" + s;
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function downloadCSV(filename, rows) {
+  const csv = "\uFEFF" + rows.map((r) => r.map(csvCell).join(",")).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+const CHART_COLORS = ["#3547E0", "#C9821F", "#2E9E6B", "#C23B3B", "#7A4FD1", "#16A3B8", "#D1569A", "#6B7280", "#9AAE2A", "#E0742F"];
+
+function drawChart({ title, categories, series, stacked = false }) {
+  const scale = 2;
+  const W = Math.min(1600, Math.max(760, categories.length * (stacked ? 70 : series.length * 26 + 20) + 120));
+  const probe = document.createElement("canvas").getContext("2d");
+  probe.font = "12px Arial";
+
+  // legend layout (wraps onto several lines if needed)
+  let lx = 0, ly = 0;
+  const legend = series.map((s) => {
+    const w = probe.measureText(s.name).width + 34;
+    if (lx + w > W - 60) { lx = 0; ly += 20; }
+    const item = { x: lx, y: ly };
+    lx += w;
+    return item;
+  });
+  const legendH = ly + 24;
+
+  const top = 50, left = 56, right = 20, plotH = 280, bottom = 90 + legendH;
+  const H = top + plotH + bottom;
+  const plotW = W - left - right;
+
+  const c = document.createElement("canvas");
+  c.width = W * scale; c.height = H * scale;
+  const ctx = c.getContext("2d");
+  ctx.scale(scale, scale);
+  ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = "#12163E"; ctx.font = "bold 15px Arial"; ctx.textAlign = "left";
+  ctx.fillText(title, left, 28);
+
+  // y scale
+  const totals = stacked
+    ? categories.map((_, i) => series.reduce((s, se) => s + (se.values[i] || 0), 0))
+    : series.flatMap((se) => se.values);
+  const maxV = Math.max(...totals, 0.01);
+  const raw = maxV / 5, mag = 10 ** Math.floor(Math.log10(raw)), norm = raw / mag;
+  const step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
+  const yMax = Math.ceil(maxV / step) * step;
+  const yPos = (v) => top + plotH - (v / yMax) * plotH;
+
+  ctx.font = "11px Arial"; ctx.textAlign = "right"; ctx.strokeStyle = "#E2E5F0"; ctx.lineWidth = 1;
+  for (let v = 0; v <= yMax + 1e-9; v += step) {
+    ctx.beginPath(); ctx.moveTo(left, yPos(v)); ctx.lineTo(left + plotW, yPos(v)); ctx.stroke();
+    ctx.fillStyle = "#5B5F82"; ctx.fillText(String(Number(v.toFixed(2))), left - 8, yPos(v) + 4);
+  }
+
+  // bars
+  const groupW = plotW / categories.length;
+  categories.forEach((cat, i) => {
+    const gx = left + i * groupW;
+    if (stacked) {
+      const bw = groupW * 0.6;
+      let acc = 0;
+      series.forEach((se, si) => {
+        const v = se.values[i] || 0;
+        if (v <= 0) return;
+        ctx.fillStyle = CHART_COLORS[si % CHART_COLORS.length];
+        ctx.fillRect(gx + (groupW - bw) / 2, yPos(acc + v), bw, yPos(acc) - yPos(acc + v));
+        acc += v;
+      });
+    } else {
+      const bw = (groupW * 0.8) / series.length;
+      series.forEach((se, si) => {
+        const v = se.values[i] || 0;
+        if (v <= 0) return;
+        ctx.fillStyle = CHART_COLORS[si % CHART_COLORS.length];
+        ctx.fillRect(gx + groupW * 0.1 + si * bw, yPos(v), bw - 1, yPos(0) - yPos(v));
+      });
+    }
+    // x label
+    const label = cat.length > 14 ? cat.slice(0, 13) + "…" : cat;
+    ctx.save();
+    ctx.translate(gx + groupW / 2, top + plotH + 14);
+    ctx.fillStyle = "#12163E"; ctx.font = "11px Arial";
+    if (groupW < 80) { ctx.rotate(-Math.PI / 4); ctx.textAlign = "right"; } else { ctx.textAlign = "center"; }
+    ctx.fillText(label, 0, 0);
+    ctx.restore();
+  });
+
+  // legend
+  const legendTop = top + plotH + 80;
+  ctx.font = "12px Arial"; ctx.textAlign = "left";
+  series.forEach((se, si) => {
+    const p = legend[si];
+    ctx.fillStyle = CHART_COLORS[si % CHART_COLORS.length];
+    ctx.fillRect(left + p.x, legendTop + p.y, 12, 12);
+    ctx.fillStyle = "#12163E";
+    ctx.fillText(se.name, left + p.x + 18, legendTop + p.y + 11);
+  });
+
+  return { url: c.toDataURL("image/png"), width: W, height: H };
+}
+
+async function downloadXlsx(filename, rows) {
+  const mod = await import("exceljs");
+  const ExcelJS = mod.default || mod;
+  const wb = new ExcelJS.Workbook();
+  const toHours = (m) => Number((m / 60).toFixed(2));
+  const styleHeader = (row) => {
+    row.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF3547E0" } };
+  };
+
+  const employees = [...new Set(rows.map((r) => r.employee))].sort((a, b) => a.localeCompare(b));
+  const projects = [...new Set(rows.map((r) => r.project))].sort((a, b) => a.localeCompare(b));
+  const dates = [...new Set(rows.map((r) => r.date))].sort();
+
+  // Sheet 1: raw entries
+  const s1 = wb.addWorksheet("Entries");
+  s1.columns = [
+    { header: "Date", key: "date", width: 12 },
+    { header: "Employee", key: "employee", width: 16 },
+    { header: "Project", key: "project", width: 22 },
+    { header: "Description", key: "description", width: 32 },
+    { header: "Minutes", key: "minutes", width: 10 },
+    { header: "Hours", key: "hours", width: 10, style: { numFmt: "0.00" } },
+    { header: "Logged at", key: "createdAt", width: 26 },
+  ];
+  rows.forEach((e) => s1.addRow({ date: e.date, employee: e.employee, project: e.project, description: e.description || "", minutes: e.minutes, hours: toHours(e.minutes), createdAt: e.createdAt }));
+  styleHeader(s1.getRow(1));
+
+  // Sheet 2: hours per employee per project
+  const s2 = wb.addWorksheet("Hours by Project");
+  s2.columns = [{ width: 18 }, ...projects.map(() => ({ width: 16, style: { numFmt: "0.00" } })), { width: 12, style: { numFmt: "0.00" } }];
+  styleHeader(s2.addRow(["Employee", ...projects, "Total"]));
+  const projSeries = projects.map((p) => ({ name: p, values: [] }));
+  employees.forEach((emp) => {
+    const vals = projects.map((p) => toHours(rows.filter((r) => r.employee === emp && r.project === p).reduce((s, r) => s + r.minutes, 0)));
+    vals.forEach((v, i) => projSeries[i].values.push(v));
+    s2.addRow([emp, ...vals, Number(vals.reduce((a, b) => a + b, 0).toFixed(2))]);
+  });
+  const c2 = drawChart({ title: "Hours by employee and project", categories: employees, series: projSeries, stacked: true });
+  s2.addImage(wb.addImage({ base64: c2.url, extension: "png" }), { tl: { col: 0, row: employees.length + 3 }, ext: { width: c2.width, height: c2.height } });
+
+  // Sheet 3: daily totals per employee
+  const s3 = wb.addWorksheet("Daily Totals");
+  s3.columns = [{ width: 14 }, ...employees.map(() => ({ width: 14, style: { numFmt: "0.00" } })), { width: 12, style: { numFmt: "0.00" } }];
+  styleHeader(s3.addRow(["Date", ...employees, "Total"]));
+  const empSeries = employees.map((e) => ({ name: e, values: [] }));
+  dates.forEach((d) => {
+    const vals = employees.map((emp) => toHours(rows.filter((r) => r.date === d && r.employee === emp).reduce((s, r) => s + r.minutes, 0)));
+    vals.forEach((v, i) => empSeries[i].values.push(v));
+    s3.addRow([d, ...vals, Number(vals.reduce((a, b) => a + b, 0).toFixed(2))]);
+  });
+  const c3 = drawChart({ title: "Daily hours per employee", categories: dates, series: empSeries, stacked: false });
+  s3.addImage(wb.addImage({ base64: c3.url, extension: "png" }), { tl: { col: 0, row: dates.length + 3 }, ext: { width: c3.width, height: c3.height } });
+
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+const DEFAULT_EMPLOYEES = ["Kusan", "Udula", "Chathumal", "Vishva", "Ranindu", "Hansama", "Devin", "Nethum", "Nithmi", "Sadeesh", "Vohara", "Thulani"];
 
 async function loadStore(key, shared, fallback) {
   try {
     const res = await window.storage.get(key, shared);
-    return res ? JSON.parse(res.value) : fallback;
+    const parsed = res ? JSON.parse(res.value) : fallback;
+    console.log(`[load] ${key} (shared=${shared})`, Array.isArray(parsed) ? `${parsed.length} items` : "", parsed);
+    return parsed;
   } catch (e) {
+    console.warn(`[load] ${key} failed or not found, using fallback`, e);
     return fallback;
   }
 }
@@ -74,6 +254,7 @@ const CSS = `
   --amber-tint: #FBEEDC;
   --brick: #C23B3B;
   --brick-tint: #FBEAEA;
+  color-scheme: light;
   font-family: 'Inter', sans-serif;
   color: var(--ink);
   background-color: var(--paper);
@@ -110,13 +291,14 @@ const CSS = `
 .ldg .tab.active { background: var(--brand-tint); color: var(--brand-deep); border-color: var(--brand); }
 .ldg .tab:hover:not(.active) { background: #ffffff80; color: var(--ink); }
 .ldg .stamp-card { position: relative; border: 1px solid var(--line); border-radius: 14px; background: var(--card); overflow: hidden; }
+.ldg .stamp-card > * { position: relative; z-index: 1; }
 .ldg .stamp-card::before {
-  content: ""; position: absolute; top: -40px; right: -40px; width: 140px; height: 140px;
-  border-radius: 50%; border: 16px solid var(--brand-tint); pointer-events: none;
+  content: ""; position: absolute; top: -28px; right: -28px; width: 90px; height: 90px;
+  border-radius: 50%; border: 10px solid var(--brand-tint); pointer-events: none; z-index: 0;
 }
 .ldg .stamp-card::after {
-  content: ""; position: absolute; top: -8px; right: 62px; width: 14px; height: 14px;
-  border-radius: 50%; background: var(--brand-tint); pointer-events: none;
+  content: ""; position: absolute; top: 4px; right: 52px; width: 10px; height: 10px;
+  border-radius: 50%; background: var(--brand-tint); pointer-events: none; z-index: 0;
 }
 .ldg .rec-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--amber); animation: ldg-pulse 1.6s ease-in-out infinite; }
 @keyframes ldg-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
@@ -419,7 +601,7 @@ function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunnin
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 16 }}>
               <div>
                 <label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Project</label>
-                <input className="field" list="proj-suggestions" placeholder="e.g. Surf Excel Q4 audit" value={project} onChange={(e) => setProject(e.target.value)} style={{ marginTop: 4 }} />
+                <input className="field" list="proj-suggestions" placeholder="What project are you working on?" value={project} onChange={(e) => setProject(e.target.value)} style={{ marginTop: 4 }} />
               </div>
               <div>
                 <label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Description (optional)</label>
@@ -701,6 +883,39 @@ function AdminTab({ employees, setEmployees, entries, setEntries, runningTimers,
   const [newPinConfirm, setNewPinConfirm] = useState("");
   const [pinError, setPinError] = useState("");
 
+    const [exportFrom, setExportFrom] = useState(ymd(new Date()));
+  const [exportTo, setExportTo] = useState(ymd(new Date()));
+  const [exportMsg, setExportMsg] = useState("");
+
+  function exportEntries() {
+    if (exportFrom > exportTo) { setExportMsg("The 'From' date must be before the 'To' date."); return; }
+    const rows = entries
+      .filter((e) => e.date >= exportFrom && e.date <= exportTo)
+      .sort((a, b) => a.date.localeCompare(b.date) || a.employee.localeCompare(b.employee));
+    if (rows.length === 0) { setExportMsg("No entries in that date range."); return; }
+    setExportMsg("");
+    const header = ["Date", "Employee", "Project", "Description", "Minutes", "Hours", "Logged at"];
+    const data = rows.map((e) => [e.date, e.employee, e.project, e.description || "", e.minutes, minutesToHours(e.minutes), e.createdAt]);
+    const name = exportFrom === exportTo ? `time-entries-${exportFrom}.csv` : `time-entries-${exportFrom}_to_${exportTo}.csv`;
+    downloadCSV(name, [header, ...data]);
+  }
+
+    async function exportExcel() {
+    if (exportFrom > exportTo) { setExportMsg("The 'From' date must be before the 'To' date."); return; }
+    const rows = entries
+      .filter((e) => e.date >= exportFrom && e.date <= exportTo)
+      .sort((a, b) => a.date.localeCompare(b.date) || a.employee.localeCompare(b.employee));
+    if (rows.length === 0) { setExportMsg("No entries in that date range."); return; }
+    setExportMsg("");
+    const name = exportFrom === exportTo ? `time-entries-${exportFrom}.xlsx` : `time-entries-${exportFrom}_to_${exportTo}.xlsx`;
+    try {
+      await downloadXlsx(name, rows);
+    } catch (err) {
+      console.error(err);
+      setExportMsg("Excel export failed. Check the browser console for details.");
+    }
+  }
+
   async function changePin() {
     if (newPin.trim().length < 4) { setPinError("Choose a PIN of at least 4 digits."); return; }
     if (newPin !== newPinConfirm) { setPinError("PINs don't match."); return; }
@@ -803,6 +1018,26 @@ function AdminTab({ employees, setEmployees, entries, setEntries, runningTimers,
           <button className="btn btn-primary" onClick={addEmployee}><Plus size={14} />Add</button>
         </div>
         {error && <div style={{ display: "flex", gap: 6, alignItems: "center", color: "var(--brick)", fontSize: 12.5, marginTop: 8 }}><AlertCircle size={14} />{error}</div>}
+      </div>
+
+      <div className="card" style={{ padding: 18 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>Export data</div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
+          <div>
+            <label style={{ fontSize: 11, color: "var(--ink-soft)" }}>From </label>
+            <input type="date" className="field" value={exportFrom} onChange={(e) => setExportFrom(e.target.value)} style={{ marginTop: 4, width: 160 }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, color: "var(--ink-soft)" }}>To </label>
+            <input type="date" className="field" value={exportTo} onChange={(e) => setExportTo(e.target.value)} style={{ marginTop: 4, width: 160 }} />
+          </div>
+          <button className="btn btn-primary" onClick={exportEntries}><Download size={14} />Export CSV</button>
+          <button className="btn btn-primary" onClick={exportExcel}><Download size={14} />Export Excel</button>
+        </div>
+        <p style={{ fontSize: 12, color: "var(--ink-soft)", margin: "10px 0 0" }}>
+          Downloads every employee's entries between these dates. Set both dates to the same day for a daily export.
+        </p>
+        {exportMsg && <div style={{ display: "flex", gap: 6, alignItems: "center", color: "var(--brick)", fontSize: 12.5, marginTop: 8 }}><AlertCircle size={14} />{exportMsg}</div>}
       </div>
 
       <div className="card" style={{ padding: 18 }}>
