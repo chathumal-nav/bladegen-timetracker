@@ -39,6 +39,21 @@ function formatClock(totalSeconds) {
 }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
+const LK_TIME = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Colombo",
+  year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", second: "2-digit",
+  hour12: false,
+});
+function toColombo(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d)) return String(iso);
+  const p = Object.fromEntries(LK_TIME.formatToParts(d).map((x) => [x.type, x.value]));
+  const hh = p.hour === "24" ? "00" : p.hour;
+  return `${p.year}-${p.month}-${p.day} ${hh}:${p.minute}:${p.second}`;
+}
+
 function csvCell(v) {
   let s = String(v ?? "");
   // stop spreadsheet apps from treating text as a formula
@@ -178,7 +193,7 @@ async function downloadXlsx(filename, rows) {
     { header: "Hours", key: "hours", width: 10, style: { numFmt: "0.00" } },
     { header: "Logged at", key: "createdAt", width: 26 },
   ];
-  rows.forEach((e) => s1.addRow({ date: e.date, employee: e.employee, project: e.project, description: e.description || "", minutes: e.minutes, hours: toHours(e.minutes), createdAt: e.createdAt }));
+  rows.forEach((e) => s1.addRow({ date: e.date, employee: e.employee, project: e.project, description: e.description || "", minutes: e.minutes, hours: toHours(e.minutes), createdAt: toColombo(e.createdAt) }));
   styleHeader(s1.getRow(1));
 
   // Sheet 2: hours per employee per project
@@ -950,7 +965,7 @@ function AdminTab({ employees, setEmployees, entries, setEntries, runningTimers,
     if (rows.length === 0) { setExportMsg("No entries in that date range."); return; }
     setExportMsg("");
     const header = ["Date", "Employee", "Project", "Description", "Minutes", "Hours", "Logged at"];
-    const data = rows.map((e) => [e.date, e.employee, e.project, e.description || "", e.minutes, minutesToHours(e.minutes), e.createdAt]);
+    const data = rows.map((e) => [e.date, e.employee, e.project, e.description || "", e.minutes, minutesToHours(e.minutes), toColombo(e.createdAt)]);
     const name = exportFrom === exportTo ? `time-entries-${exportFrom}.csv` : `time-entries-${exportFrom}_to_${exportTo}.csv`;
     downloadCSV(name, [header, ...data]);
   }
