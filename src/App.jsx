@@ -54,6 +54,10 @@ function toColombo(iso) {
   return `${p.year}-${p.month}-${p.day} ${hh}:${p.minute}:${p.second}`;
 }
 
+function byLoggedTime(a, b) {
+  return new Date(a.createdAt) - new Date(b.createdAt);
+}
+
 function csvCell(v) {
   let s = String(v ?? "");
   // stop spreadsheet apps from treating text as a formula
@@ -991,7 +995,7 @@ function AdminTab({ employees, setEmployees, entries, setEntries, runningTimers,
     if (exportFrom > exportTo) { setExportMsg("The 'From' date must be before the 'To' date."); return; }
     const rows = entries
       .filter((e) => e.date >= exportFrom && e.date <= exportTo)
-      .sort((a, b) => a.date.localeCompare(b.date) || a.employee.localeCompare(b.employee));
+      .sort(byLoggedTime);
     if (rows.length === 0) { setExportMsg("No entries in that date range."); return; }
     setExportMsg("");
     const header = ["Date", "Employee", "Project", "Description", "Minutes", "Hours", "Logged at"];
@@ -1004,7 +1008,7 @@ function AdminTab({ employees, setEmployees, entries, setEntries, runningTimers,
     if (exportFrom > exportTo) { setExportMsg("The 'From' date must be before the 'To' date."); return; }
     const rows = entries
       .filter((e) => e.date >= exportFrom && e.date <= exportTo)
-      .sort((a, b) => a.date.localeCompare(b.date) || a.employee.localeCompare(b.employee));
+      .sort(byLoggedTime);
     if (rows.length === 0) { setExportMsg("No entries in that date range."); return; }
     setExportMsg("");
     const name = exportFrom === exportTo ? `time-entries-${exportFrom}.xlsx` : `time-entries-${exportFrom}_to_${exportTo}.xlsx`;
