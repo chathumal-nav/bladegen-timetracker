@@ -695,11 +695,11 @@ function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunnin
             <div className="timer-fields">
               <div>
                 <label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Project</label>
-                <input className="field" list="proj-suggestions" placeholder="What project are you working on?" value={project} onChange={(e) => setProject(e.target.value)} style={{ marginTop: 4 }} />
+                <input className="field" list="proj-suggestions" placeholder="Project/Client Name Only" value={project} onChange={(e) => setProject(e.target.value)} style={{ marginTop: 4 }} />
               </div>
               <div>
-                <label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Description (optional)</label>
-                <input className="field" placeholder="What are you working on" value={description} onChange={(e) => setDescription(e.target.value)} style={{ marginTop: 4 }} />
+                <label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Description </label>
+                <input className="field" placeholder="What are you working on?" value={description} onChange={(e) => setDescription(e.target.value)} style={{ marginTop: 4 }} />
               </div>
             </div>
             <datalist id="proj-suggestions">
@@ -1087,15 +1087,15 @@ function AdminTab({ employees, setEmployees, entries, setEntries, runningTimers,
       <div className="card" style={{ padding: 18, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--ink-soft)" }}><Lock size={14} />Admin mode is unlocked on this device</div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn" onClick={() => setPinOpen((v) => !v)}>Change PIN</button>
+          <button className="btn" onClick={() => setPinOpen((v) => !v)}>Change Password</button>
           <button className="btn" onClick={onSignOut}><LogOut size={14} />Sign out of admin</button>
         </div>
       </div>
       {pinOpen && (
         <div className="card" style={{ padding: 16, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
-          <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>New PIN</label><input type="password" inputMode="text" className="field" value={newPin} onChange={(e) => setNewPin(e.target.value)} style={{ marginTop: 4, maxWidth: 140 }} /></div>
-          <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Confirm</label><input type="password" inputMode="text" className="field" value={newPinConfirm} onChange={(e) => setNewPinConfirm(e.target.value)} style={{ marginTop: 4, maxWidth: 140 }} /></div>
-          <button className="btn btn-primary" onClick={changePin}><Check size={14} />Save PIN</button>
+          <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>New Password </label><input type="password" inputMode="text" className="field" value={newPin} onChange={(e) => setNewPin(e.target.value)} style={{ marginTop: 4, maxWidth: 140 }} /></div>
+          <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Confirm </label><input type="password" inputMode="text" className="field" value={newPinConfirm} onChange={(e) => setNewPinConfirm(e.target.value)} style={{ marginTop: 4, maxWidth: 140 }} /></div>
+          <button className="btn btn-primary" onClick={changePin}><Check size={14} />Save Password</button>
           {pinError && <div style={{ display: "flex", gap: 6, alignItems: "center", color: "var(--brick)", fontSize: 12.5 }}><AlertCircle size={14} />{pinError}</div>}
         </div>
       )}
