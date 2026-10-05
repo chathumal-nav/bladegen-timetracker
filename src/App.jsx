@@ -583,13 +583,13 @@ function PinGate({ adminPin, setAdminPin, onUnlock }) {
         {isSetup ? "This unlocks everyone's hours and team settings. Keep it between admins." : "Enter the team's admin PIN to view everyone's hours and manage the roster."}
       </p>
       <input
-        type="password" inputMode="numeric" className="field" placeholder="PIN" value={input}
+        type="password" inputMode="text" className="field" placeholder="Password" value={input}
         onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !isSetup && submit()}
         style={{ textAlign: "center", letterSpacing: "0.2em" }}
       />
       {isSetup && (
         <input
-          type="password" inputMode="numeric" className="field" placeholder="Confirm PIN" value={confirmInput}
+          type="password" inputMode="text" className="field" placeholder="Confirm Password" value={confirmInput}
           onChange={(e) => setConfirmInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()}
           style={{ textAlign: "center", letterSpacing: "0.2em", marginTop: 8 }}
         />
@@ -1093,8 +1093,8 @@ function AdminTab({ employees, setEmployees, entries, setEntries, runningTimers,
       </div>
       {pinOpen && (
         <div className="card" style={{ padding: 16, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
-          <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>New PIN</label><input type="password" inputMode="numeric" className="field" value={newPin} onChange={(e) => setNewPin(e.target.value)} style={{ marginTop: 4, maxWidth: 140 }} /></div>
-          <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Confirm</label><input type="password" inputMode="numeric" className="field" value={newPinConfirm} onChange={(e) => setNewPinConfirm(e.target.value)} style={{ marginTop: 4, maxWidth: 140 }} /></div>
+          <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>New PIN</label><input type="password" inputMode="text" className="field" value={newPin} onChange={(e) => setNewPin(e.target.value)} style={{ marginTop: 4, maxWidth: 140 }} /></div>
+          <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Confirm</label><input type="password" inputMode="text" className="field" value={newPinConfirm} onChange={(e) => setNewPinConfirm(e.target.value)} style={{ marginTop: 4, maxWidth: 140 }} /></div>
           <button className="btn btn-primary" onClick={changePin}><Check size={14} />Save PIN</button>
           {pinError && <div style={{ display: "flex", gap: 6, alignItems: "center", color: "var(--brick)", fontSize: 12.5 }}><AlertCircle size={14} />{pinError}</div>}
         </div>
