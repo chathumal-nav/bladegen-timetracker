@@ -580,7 +580,7 @@ function PinGate({ adminPin, setAdminPin, onUnlock }) {
       <Lock size={20} style={{ color: "var(--ink-soft)" }} />
       <h3 style={{ fontSize: 15, margin: "10px 0 4px" }}>{isSetup ? "Set an admin PIN" : "Admin access"}</h3>
       <p style={{ fontSize: 12.5, color: "var(--ink-soft)", margin: "0 0 16px" }}>
-        {isSetup ? "This unlocks everyone's hours and team settings. Keep it between admins." : "Enter the team's admin PIN to view everyone's hours and manage the roster."}
+        {isSetup ? "This unlocks everyone's hours and team settings. Keep it between admins." : "Enter admin password to view everyone's hours and manage the roster."}
       </p>
       <input
         type="password" inputMode="text" className="field" placeholder="Password" value={input}
