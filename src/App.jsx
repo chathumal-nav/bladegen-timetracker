@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, LabelList, ResponsiveContainer, Cell } from "recharts";
 import { Play, Square, Plus, Trash2, Clock, LayoutGrid, BarChart2, Settings, ChevronLeft, ChevronRight, Pencil, Check, X, AlertCircle, Lock, LogOut, Download } from "lucide-react";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -78,10 +78,13 @@ function downloadCSV(filename, rows) {
 }
 
 const CHART_COLORS = ["#3547E0", "#C9821F", "#2E9E6B", "#C23B3B", "#7A4FD1", "#16A3B8", "#D1569A", "#6B7280", "#9AAE2A", "#E0742F"];
+const paletteColor = (i) => (i < CHART_COLORS.length ? CHART_COLORS[i] : `hsl(${Math.round((i * 137.5) % 360)} 60% 45%)`);
 
-function drawChart({ title, categories, series, stacked = false }) {
+function drawChart({ title, categories, series, stacked = false, color }) {
+  const colorOf = (si) => color || paletteColor(si);
   const scale = 2;
-  const W = Math.min(1600, Math.max(760, categories.length * (stacked ? 70 : series.length * 26 + 20) + 120));
+  const perCat = stacked ? 80 : Math.max(64, series.length * 30 + 20);
+  const W = Math.min(1600, Math.max(760, categories.length * perCat + 120));
   const probe = document.createElement("canvas").getContext("2d");
   probe.font = "12px Arial";
 
@@ -96,7 +99,7 @@ function drawChart({ title, categories, series, stacked = false }) {
   });
   const legendH = ly + 24;
 
-  const top = 50, left = 56, right = 20, plotH = 280, bottom = 90 + legendH;
+  const top = 56, left = 56, right = 20, plotH = 280, bottom = 90 + legendH;
   const H = top + plotH + bottom;
   const plotW = W - left - right;
 
@@ -110,10 +113,8 @@ function drawChart({ title, categories, series, stacked = false }) {
   ctx.fillText(title, left, 28);
 
   // y scale
-  const totals = stacked
-    ? categories.map((_, i) => series.reduce((s, se) => s + (se.values[i] || 0), 0))
-    : series.flatMap((se) => se.values);
-  const maxV = Math.max(...totals, 0.01);
+  const stackTotals = categories.map((_, i) => series.reduce((s, se) => s + (se.values[i] || 0), 0));
+  const maxV = Math.max(...(stacked ? stackTotals : series.flatMap((se) => se.values)), 0.01);
   const raw = maxV / 5, mag = 10 ** Math.floor(Math.log10(raw)), norm = raw / mag;
   const step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
   const yMax = Math.ceil(maxV / step) * step;
@@ -125,27 +126,56 @@ function drawChart({ title, categories, series, stacked = false }) {
     ctx.fillStyle = "#5B5F82"; ctx.fillText(String(Number(v.toFixed(2))), left - 8, yPos(v) + 4);
   }
 
+  // value labels (hours and minutes)
+  const fmt = (h) => minutesToHM(h * 60);
+  const drawLabel = (text, cx, cy, inside) => {
+    ctx.font = "bold 10px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    if (inside) {
+      ctx.lineWidth = 3; ctx.strokeStyle = "rgba(0,0,0,0.4)"; ctx.strokeText(text, cx, cy);
+      ctx.fillStyle = "#fff";
+    } else {
+      ctx.fillStyle = "#12163E";
+    }
+    ctx.fillText(text, cx, cy);
+    ctx.textBaseline = "alphabetic";
+    ctx.lineWidth = 1;
+  };
+
   // bars
   const groupW = plotW / categories.length;
   categories.forEach((cat, i) => {
     const gx = left + i * groupW;
     if (stacked) {
       const bw = groupW * 0.6;
+      const bx = gx + (groupW - bw) / 2;
       let acc = 0;
       series.forEach((se, si) => {
         const v = se.values[i] || 0;
         if (v <= 0) return;
         ctx.fillStyle = CHART_COLORS[si % CHART_COLORS.length];
-        ctx.fillRect(gx + (groupW - bw) / 2, yPos(acc + v), bw, yPos(acc) - yPos(acc + v));
+        ctx.fillRect(bx, yPos(acc + v), bw, yPos(acc) - yPos(acc + v));
+        const segH = yPos(acc) - yPos(acc + v);
+        const text = fmt(v);
+        ctx.font = "bold 10px Arial";
+        if (segH >= 14 && ctx.measureText(text).width + 6 <= bw) {
+          drawLabel(text, bx + bw / 2, yPos(acc + v) + segH / 2, true);
+        }
         acc += v;
       });
+      if (acc > 0) drawLabel(fmt(acc), bx + bw / 2, yPos(acc) - 9, false);
     } else {
       const bw = (groupW * 0.8) / series.length;
       series.forEach((se, si) => {
         const v = se.values[i] || 0;
         if (v <= 0) return;
-        ctx.fillStyle = CHART_COLORS[si % CHART_COLORS.length];
-        ctx.fillRect(gx + groupW * 0.1 + si * bw, yPos(v), bw - 1, yPos(0) - yPos(v));
+        ctx.fillStyle = colorOf(si);
+        const bx = gx + groupW * 0.1 + si * bw;
+        ctx.fillRect(bx, yPos(v), bw - 1, yPos(0) - yPos(v));
+        const text = fmt(v);
+        ctx.font = "bold 10px Arial";
+        if (ctx.measureText(text).width <= bw + 8) drawLabel(text, bx + (bw - 1) / 2, yPos(v) - 9, false);
       });
     }
     // x label
@@ -163,7 +193,7 @@ function drawChart({ title, categories, series, stacked = false }) {
   ctx.font = "12px Arial"; ctx.textAlign = "left";
   series.forEach((se, si) => {
     const p = legend[si];
-    ctx.fillStyle = CHART_COLORS[si % CHART_COLORS.length];
+    ctx.fillStyle = colorOf(si);
     ctx.fillRect(left + p.x, legendTop + p.y, 12, 12);
     ctx.fillStyle = "#12163E";
     ctx.fillText(se.name, left + p.x + 18, legendTop + p.y + 11);
@@ -181,6 +211,8 @@ async function downloadXlsx(filename, rows) {
     row.font = { bold: true, color: { argb: "FFFFFFFF" } };
     row.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF3547E0" } };
   };
+
+  
 
   const employees = [...new Set(rows.map((r) => r.employee))].sort((a, b) => a.localeCompare(b));
   const projects = [...new Set(rows.map((r) => r.project))].sort((a, b) => a.localeCompare(b));
@@ -235,6 +267,132 @@ async function downloadXlsx(filename, rows) {
   URL.revokeObjectURL(url);
 }
 
+async function downloadReportPdf(filename, from, to, rows) {
+  const { jsPDF } = await import("jspdf");
+  const autoTable = (await import("jspdf-autotable")).default;
+  const doc = new jsPDF({ unit: "mm", format: "a4", compress: true });
+  const PW = 210, PH = 297, M = 14, CW = PW - 2 * M;
+  const BRAND = [53, 71, 224];
+  let y = M;
+
+  const ensure = (h) => { if (y + h > PH - 16) { doc.addPage(); y = M; } };
+  const heading = (text) => {
+    ensure(16);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(18, 22, 62);
+    doc.text(text, M, y + 5); y += 9;
+  };
+  const addChart = (chart) => {
+    const h = (CW * chart.height) / chart.width;
+    ensure(h + 4);
+    doc.addImage(chart.url, "PNG", M, y, CW, h, undefined, "FAST");
+    y += h + 6;
+  };
+  const table = (head, body, opts = {}) => {
+    autoTable(doc, {
+      startY: y, head: [head], body, margin: { left: M, right: M },
+      styles: { fontSize: 8.5, cellPadding: 2 }, headStyles: { fillColor: BRAND }, ...opts,
+    });
+    y = (doc.lastAutoTable ? doc.lastAutoTable.finalY : y) + 8;
+  };
+
+  // ---- Header ----
+  try {
+    const p = doc.getImageProperties(LOGO_SRC);
+    const lh = 11;
+    doc.addImage(LOGO_SRC, "PNG", M, y, (lh * p.width) / p.height, lh, undefined, "FAST");
+    y += lh + 6;
+  } catch (e) { /* logo is optional */ }
+  doc.setFont("helvetica", "bold"); doc.setFontSize(17); doc.setTextColor(18, 22, 62);
+  doc.text("Time Tracking Report", M, y + 5); y += 9;
+  doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(91, 95, 130);
+  doc.text(`Period: ${from === to ? from : `${from} to ${to}`}`, M, y + 4); y += 5;
+  doc.text(`Generated: ${toColombo(new Date().toISOString())} (Sri Lanka time)`, M, y + 4); y += 10;
+
+  // ---- Numbers ----
+  const byEmp = {}, byProj = {}, countEmp = {}, countProj = {};
+  rows.forEach((r) => {
+    byEmp[r.employee] = (byEmp[r.employee] || 0) + r.minutes;
+    byProj[r.project] = (byProj[r.project] || 0) + r.minutes;
+    countEmp[r.employee] = (countEmp[r.employee] || 0) + 1;
+    countProj[r.project] = (countProj[r.project] || 0) + 1;
+  });
+  const empList = Object.entries(byEmp).sort((a, b) => b[1] - a[1]);
+  const projList = Object.entries(byProj).sort((a, b) => b[1] - a[1]);
+  const totalMin = rows.reduce((s, r) => s + r.minutes, 0);
+
+  table(
+    ["Total hours", "Entries", "Employees", "Projects"],
+    [[minutesToHours(totalMin), String(rows.length), String(empList.length), String(projList.length)]],
+    { styles: { fontSize: 13, cellPadding: 3, halign: "center", fontStyle: "bold" }, headStyles: { fillColor: BRAND, fontSize: 9, halign: "center" } }
+  );
+
+  // ---- Charts ----
+  heading("Hours by employee and client");
+  const empNames = empList.map((e) => e[0]);
+  const empProjSeries = projList.map(([p]) => ({
+    name: p,
+    values: empNames.map((emp) => Number((rows.filter((r) => r.employee === emp && r.project === p).reduce((s, r) => s + r.minutes, 0) / 60).toFixed(2))),
+  }));
+  addChart(drawChart({ title: "Hours by employee and client", stacked: true, categories: empNames, series: empProjSeries }));
+
+  // ---- Work details per employee ----
+  heading("Work details by employee");
+  empList.forEach(([emp, mins]) => {
+    const list = rows
+      .filter((r) => r.employee === emp)
+      .sort((a, b) => a.project.localeCompare(b.project) || new Date(a.createdAt) - new Date(b.createdAt));
+    ensure(30);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(18, 22, 62);
+    doc.text(`${emp}  -  ${minutesToHM(mins)}`, M, y + 4); y += 6;
+    table(
+      ["Client", "Task done", "Duration", "Justification (over 30 min)"],
+      list.map((e) => [e.project, e.description || "-", minutesToHM(e.minutes), e.minutes > 30 ? (e.justification || "Not provided") : "-"]),
+      {
+        styles: { fontSize: 8, cellPadding: 1.8, overflow: "linebreak" },
+        columnStyles: { 0: { cellWidth: 32 }, 1: { cellWidth: 52 }, 2: { cellWidth: 20, halign: "right" } },
+        didParseCell: (d) => {
+          if (d.section === "body" && d.column.index === 3 && d.cell.raw === "Not provided") d.cell.styles.textColor = [194, 59, 59];
+        },
+      }
+    );
+  });
+
+  heading("Hours by project");
+  addChart(drawChart({ title: "Hours by project", color: "#C9821F", categories: projList.map((p) => p[0]), series: [{ name: "Hours", values: projList.map((p) => Number(minutesToHours(p[1]))) }] }));
+
+  const names = empList.map((e) => e[0]);
+  const timeData = buildTimeChart(rows, names, "hour");
+  if (timeData.length) {
+    heading("Employee work logs by hour of the day (Sri Lanka time)");
+    addChart(drawChart({
+      title: "Hours by hour of the day", stacked: true,
+      categories: timeData.map((r) => r.display),
+      series: names.map((n, i) => ({ name: n, values: timeData.map((r) => r[`s${i}`] || 0) })),
+    }));
+  }
+
+  // ---- Summary tables ----
+  heading("Employee summary");
+  table(["Employee", "Hours", "Time", "Entries"], empList.map(([n, m]) => [n, minutesToHours(m), minutesToHM(m), String(countEmp[n])]),
+    { columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" } } });
+
+  heading("Project summary");
+  table(["Project", "Hours", "Time", "Entries"], projList.map(([n, m]) => [n, minutesToHours(m), minutesToHM(m), String(countProj[n])]),
+    { columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" } } });
+
+  // ---- Page numbers ----
+  const pages = doc.getNumberOfPages();
+  for (let i = 1; i <= pages; i++) {
+    doc.setPage(i);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(148, 152, 184);
+    doc.text(`Page ${i} of ${pages}`, PW - M, PH - 8, { align: "right" });
+    doc.text("BladeGen Time Tracker", M, PH - 8);
+  }
+
+  doc.save(filename);
+}
+
+const PROJECTS = ["Real Estate Tool", "DeepDish", "Social Listening", "Revello", "Denza", "Stanley", "Barista", "Upali's", "W15", "Roots", "Tilapiya", "StemLink", "Food Studio", "Waves", "Celeste", "Salt House"];
 const DEFAULT_EMPLOYEES = ["Kusan", "Udula", "Chathumal", "Vishva", "Ranindu", "Hansama", "Devin", "Nethum", "Nithmi", "Sadeesh", "Vohara", "Thulani"];
 
 async function loadStore(key, shared, fallback) {
@@ -377,7 +535,7 @@ function useShared(key, fallback) {
 
 function sameEntry(a, b) {
   return a.employee === b.employee && a.project === b.project && a.description === b.description &&
-    a.date === b.date && a.minutes === b.minutes;
+    (a.justification || "") === (b.justification || "") && a.date === b.date && a.minutes === b.minutes;
 }
 
 function useEntries() {
@@ -620,6 +778,8 @@ function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunnin
   const [manualHours, setManualHours] = useState("");
   const [manualMinutes, setManualMinutes] = useState("");
   const [error, setError] = useState("");
+  const [justification, setJustification] = useState("");
+  const [manualJust, setManualJust] = useState("");
 
   if (employees.length === 0) {
     return (
@@ -639,17 +799,19 @@ function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunnin
     const next = { ...runningTimers, [me]: { project: project.trim(), description: description.trim(), startTime: new Date().toISOString() } };
     await setRunningTimers(next);
   }
-  async function stopTimer() {
+    async function stopTimer() {
     const t = runningTimers[me];
     if (!t) return;
     const startMs = new Date(t.startTime).getTime();
     const minutes = Math.max(1, Math.round((Date.now() - startMs) / 60000));
-    const entry = { id: uid(), employee: me, project: t.project, description: t.description, date: ymd(new Date(t.startTime)), minutes, createdAt: new Date().toISOString() };
+    if (minutes > 30 && !justification.trim()) { setError("This session is over 30 minutes. Add a justification before saving."); return; }
+    setError("");
+    const entry = { id: uid(), employee: me, project: t.project, description: t.description, justification: justification.trim(), date: ymd(new Date(t.startTime)), minutes, createdAt: new Date().toISOString() };
     const nextTimers = { ...runningTimers };
     delete nextTimers[me];
     await setEntries([entry, ...entries]);
     await setRunningTimers(nextTimers);
-    setProject(""); setDescription("");
+    setProject(""); setDescription(""); setJustification("");
   }
   async function discardTimer() {
     const nextTimers = { ...runningTimers };
@@ -663,10 +825,11 @@ function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunnin
     const totalMinutes = Math.round((isNaN(h) ? 0 : h) * 60 + (isNaN(m) ? 0 : m));
     if (!manualProject.trim()) { setError("Enter a project for the manual entry."); return; }
     if (totalMinutes <= 0) { setError("Enter a duration greater than zero."); return; }
+    if (totalMinutes > 30 && !manualJust.trim()) { setError("Entries over 30 minutes need a justification."); return; }
     setError("");
-    const entry = { id: uid(), employee: me, project: manualProject.trim(), description: manualDesc.trim(), date: manualDate, minutes: totalMinutes, createdAt: new Date().toISOString() };
+    const entry = { id: uid(), employee: me, project: manualProject.trim(), description: manualDesc.trim(), justification: manualJust.trim(), date: manualDate, minutes: totalMinutes, createdAt: new Date().toISOString() };
     await setEntries([entry, ...entries]);
-    setManualProject(""); setManualDesc(""); setManualHours(""); setManualMinutes(""); setManualOpen(false);
+    setManualProject(""); setManualDesc(""); setManualJust(""); setManualHours(""); setManualMinutes(""); setManualOpen(false);
   }
 
   const others = Object.entries(runningTimers).filter(([emp]) => emp !== me);
@@ -683,6 +846,11 @@ function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunnin
             <div className="mono timer-digits" style={{ fontWeight: 600, lineHeight: 1 }}>{formatClock(elapsedSec)}</div>
             <div style={{ marginTop: 10, fontSize: 14, fontWeight: 500, textAlign: "center" }}>{myTimer.project}</div>
 {myTimer.description && <div style={{ fontSize: 13, color: "var(--ink-soft)", marginTop: 2, textAlign: "center" }}>{myTimer.description}</div>}
+            <div style={{ marginTop: 16, maxWidth: 520, marginLeft: "auto", marginRight: "auto" }}>
+              <label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Justification (required if the session is over 30 minutes)</label>
+              <input className="field" placeholder="Why did this take this long?" value={justification} onChange={(e) => setJustification(e.target.value)} style={{ marginTop: 4 }} />
+            </div>
+            {error && <div style={{ display: "flex", gap: 6, alignItems: "center", justifyContent: "center", color: "var(--brick)", fontSize: 12.5, marginTop: 8 }}><AlertCircle size={14} />{error}</div>}
             <div style={{ display: "flex", gap: 8, marginTop: 18, justifyContent: "center" }}>
               <button className="btn btn-primary" onClick={stopTimer}><Square size={14} />Stop and save</button>
               <button className="btn" onClick={discardTimer}><X size={14} />Discard</button>
@@ -695,7 +863,10 @@ function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunnin
             <div className="timer-fields">
               <div>
                 <label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Project</label>
-                <input className="field" list="proj-suggestions" placeholder="Project/Client Name Only" value={project} onChange={(e) => setProject(e.target.value)} style={{ marginTop: 4 }} />
+                <select className="field" value={project} onChange={(e) => setProject(e.target.value)} style={{ marginTop: 4 }}>
+                  <option value="">Select a project…</option>
+                  {PROJECTS.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
               </div>
               <div>
                 <label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Description </label>
@@ -718,10 +889,14 @@ function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunnin
         {manualOpen && (
           <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 10 }}>
             <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Date</label><input type="date" className="field" value={manualDate} onChange={(e) => setManualDate(e.target.value)} style={{ marginTop: 4 }} /></div>
-            <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Project</label><input className="field" list="proj-suggestions" value={manualProject} onChange={(e) => setManualProject(e.target.value)} style={{ marginTop: 4 }} /></div>
+            <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Project</label><select className="field" value={manualProject} onChange={(e) => setManualProject(e.target.value)} style={{ marginTop: 4 }}>
+              <option value="">Select a project…</option>
+              {PROJECTS.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select></div>
             <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Hours</label><input type="number" min="0" className="field" value={manualHours} onChange={(e) => setManualHours(e.target.value)} style={{ marginTop: 4 }} /></div>
             <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Minutes</label><input type="number" min="0" max="59" className="field" value={manualMinutes} onChange={(e) => setManualMinutes(e.target.value)} style={{ marginTop: 4 }} /></div>
-            <div style={{ gridColumn: "1 / -1" }}><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Description (optional)</label><input className="field" value={manualDesc} onChange={(e) => setManualDesc(e.target.value)} style={{ marginTop: 4 }} /></div>
+            <div style={{ gridColumn: "1 / -1" }}><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Description</label><input className="field" value={manualDesc} onChange={(e) => setManualDesc(e.target.value)} style={{ marginTop: 4 }} /></div>
+            <div style={{ gridColumn: "1 / -1" }}><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Justification (required if over 30 minutes)</label><input className="field" value={manualJust} onChange={(e) => setManualJust(e.target.value)} style={{ marginTop: 4 }} /></div>
             {error && <div style={{ gridColumn: "1 / -1", display: "flex", gap: 6, alignItems: "center", color: "var(--brick)", fontSize: 12.5 }}><AlertCircle size={14} />{error}</div>}
             <div style={{ gridColumn: "1 / -1" }}><button className="btn btn-primary" onClick={addManual}><Check size={14} />Add entry</button></div>
           </div>
@@ -774,10 +949,11 @@ function TimesheetTab({ me, employees, entries, setEntries, projectSuggestions }
     const mins = Math.round((isNaN(h) ? 0 : h) * 60);
     if (!addProject.trim()) { setError("Enter a project."); return; }
     if (mins <= 0) { setError("Enter hours greater than zero."); return; }
+    if (mins > 30 && !addJust.trim()) { setError("Entries over 30 minutes need a justification."); return; }
     setError("");
-    const entry = { id: uid(), employee: me, project: addProject.trim(), description: "", date: dayKeys[addDay], minutes: mins, createdAt: new Date().toISOString() };
+    const entry = { id: uid(), employee: me, project: addProject.trim(), description: "", justification: addJust.trim(), date: dayKeys[addDay], minutes: mins, createdAt: new Date().toISOString() };
     await setEntries([entry, ...entries]);
-    setAddProject(""); setAddHours(""); setAddOpen(false);
+    setAddProject(""); setAddJust(""); setAddHours(""); setAddOpen(false);
   }
 
   return (
@@ -800,11 +976,16 @@ function TimesheetTab({ me, employees, entries, setEntries, projectSuggestions }
             </select>
           </div>
           <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Project</label>
-            <input className="field" list="proj-suggestions-ts" value={addProject} onChange={(e) => setAddProject(e.target.value)} style={{ marginTop: 4 }} />
-            <datalist id="proj-suggestions-ts">{projectSuggestions.map((p) => <option key={p} value={p} />)}</datalist>
+            <select className="field" value={addProject} onChange={(e) => setAddProject(e.target.value)} style={{ marginTop: 4 }}>
+              <option value="">Select a project…</option>
+              {PROJECTS.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
           </div>
           <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Hours</label>
             <input type="number" min="0" step="0.25" className="field" value={addHours} onChange={(e) => setAddHours(e.target.value)} style={{ marginTop: 4 }} />
+          </div>
+          <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Justification (if over 30 min)</label>
+            <input className="field" value={addJust} onChange={(e) => setAddJust(e.target.value)} style={{ marginTop: 4 }} />
           </div>
           <button className="btn btn-primary" onClick={quickAdd}><Check size={14} />Add</button>
           {error && <div style={{ gridColumn: "1 / -1", display: "flex", gap: 6, alignItems: "center", color: "var(--brick)", fontSize: 12.5 }}><AlertCircle size={14} />{error}</div>}
@@ -859,15 +1040,108 @@ function LeftTick({ x, y, payload }) {
   );
 }
 
+// 12 hand-picked colors that are far apart; beyond 12 employees, colors are spread around the color wheel
+const EMP_COLORS = ["#E6194B", "#3CB44B", "#4363D8", "#F58231", "#911EB4", "#46F0F0", "#F032E6", "#BCF60C", "#008080", "#9A6324", "#000075", "#FFC800"];
+function employeeColor(i) {
+  return i < EMP_COLORS.length ? EMP_COLORS[i] : `hsl(${Math.round((i * 137.5) % 360)} 65% 45%)`;
+}
+
+const LK_OFFSET_MS = 5.5 * 3600000; // Sri Lanka is UTC+5:30
+
+// mode "hour": total hours per hour of the day. mode "day": total hours per date.
+function buildTimeChart(entries, names, mode) {
+  const rows = {};
+  const add = (label, emp, mins) => {
+    const idx = names.indexOf(emp);
+    if (idx < 0) return;
+    if (!rows[label]) rows[label] = { label };
+    rows[label][`s${idx}`] = (rows[label][`s${idx}`] || 0) + mins / 60;
+  };
+
+  entries.forEach((e) => {
+    if (mode === "day") { add(e.date, e.employee, e.minutes); return; }
+    // The work is placed in the period ending when the entry was logged (Sri Lanka time)
+    const end = new Date(e.createdAt).getTime();
+    if (isNaN(end)) return;
+    let t = end - e.minutes * 60000;
+    while (t < end) {
+      const local = t + LK_OFFSET_MS;
+      const nextHour = Math.floor(local / 3600000) * 3600000 + 3600000 - LK_OFFSET_MS;
+      const seg = Math.min(end, nextHour) - t;
+      add(`${pad(new Date(local).getUTCHours())}:00`, e.employee, seg / 60000);
+      t += seg;
+    }
+  });
+
+  let labels = Object.keys(rows).sort();
+  if (mode === "hour" && labels.length) {
+    const first = parseInt(labels[0], 10), last = parseInt(labels[labels.length - 1], 10);
+    labels = Array.from({ length: last - first + 1 }, (_, i) => `${pad(first + i)}:00`);
+  }
+  return labels.map((l) => {
+    const row = { ...(rows[l] || { label: l }) };
+    Object.keys(row).forEach((k) => { if (k !== "label") row[k] = Number(row[k].toFixed(2)); });
+    row.display = mode === "day" ? fmtDayShort(new Date(l + "T00:00:00")) : l;
+    row.total = Number(
+      Object.keys(row).filter((k) => /^s\d+$/.test(k)).reduce((s, k) => s + row[k], 0).toFixed(2)
+    );
+    return row;
+  });
+}
+
+function StackTooltip({ active, payload, label }) {
+  if (!active || !payload || !payload.length) return null;
+  const items = payload.filter((p) => p.value > 0 && p.dataKey !== "total").sort((a, b) => b.value - a.value);
+  if (!items.length) return null;
+  const total = items.reduce((s, p) => s + p.value, 0);
+  return (
+    <div style={{ background: "#fff", border: "1px solid #E2E5F0", borderRadius: 6, padding: "8px 10px", fontSize: 12 }}>
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>{label} · {minutesToHM(total * 60)}</div>
+      {items.map((p) => (
+        <div key={p.dataKey} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ width: 9, height: 9, background: p.fill, borderRadius: 2, display: "inline-block" }} />
+          <span>{p.name}: {minutesToHM(p.value * 60)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Label inside a segment (hidden when the segment is too short to hold text)
+function SegmentLabel({ x, y, width, height, value }) {
+  if (!value || height < 16 || width < 30) return null;
+  return (
+    <text x={x + width / 2} y={y + height / 2} textAnchor="middle" dominantBaseline="central"
+      fontSize={11} fontWeight={700} fill="#fff" stroke="rgba(0,0,0,0.35)" strokeWidth={2.5} paintOrder="stroke"
+      style={{ pointerEvents: "none" }}>
+      {minutesToHM(value * 60)}
+    </text>
+  );
+}
+
+// Total shown above each stack
+function TotalLabel({ x, y, width, value }) {
+  if (!value) return null;
+  return (
+    <text x={x + width / 2} y={y - 6} textAnchor="middle" fontSize={11.5} fontWeight={700} fill="#12163E"
+      style={{ pointerEvents: "none" }}>
+      {minutesToHM(value * 60)}
+    </text>
+  );
+}
+
 function ReportsTab({ employees, entries, isAdmin, me }) {
-  const [rangeMode, setRangeMode] = useState("week");
+  const [rangeMode, setRangeMode] = useState("today");
   const [customStart, setCustomStart] = useState(ymd(startOfWeek(new Date())));
   const [customEnd, setCustomEnd] = useState(ymd(new Date()));
   const [filterEmployee, setFilterEmployee] = useState("all");
   const [filterProject, setFilterProject] = useState("");
+  const [timeView, setTimeView] = useState("hour");
 
   const { start, end } = useMemo(() => {
     const today = new Date();
+    if (rangeMode === "today") return { start: ymd(today), end: ymd(today) };
+    if (rangeMode === "yesterday") { const y = addDays(today, -1); return { start: ymd(y), end: ymd(y) }; }
     if (rangeMode === "week") return { start: ymd(startOfWeek(today)), end: ymd(addDays(startOfWeek(today), 6)) };
     if (rangeMode === "lastWeek") { const s = addDays(startOfWeek(today), -7); return { start: ymd(s), end: ymd(addDays(s, 6)) }; }
     if (rangeMode === "month") return { start: ymd(startOfMonth(today)), end: ymd(endOfMonth(today)) };
@@ -890,6 +1164,11 @@ function ReportsTab({ employees, entries, isAdmin, me }) {
   });
   const employeeData = Object.entries(byEmployee).sort((a, b) => b[1] - a[1]).map(([name, mins]) => ({ name, hours: Number(minutesToHours(mins)) }));
   const projectData = Object.entries(byProject).sort((a, b) => b[1] - a[1]).map(([name, mins]) => ({ name, hours: Number(minutesToHours(mins)) }));
+  const chartEmployees = [
+  ...employees.filter((n) => byEmployee[n]),
+  ...Object.keys(byEmployee).filter((n) => !employees.includes(n)),
+  ];
+  const timeData = buildTimeChart(filtered, chartEmployees, timeView);
 
   return (
     <div>
@@ -897,6 +1176,8 @@ function ReportsTab({ employees, entries, isAdmin, me }) {
         <div>
           <label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Date range</label>
           <select className="field" value={rangeMode} onChange={(e) => setRangeMode(e.target.value)} style={{ marginTop: 4 }}>
+            <option value="today">Today</option>
+            <option value="yesterday">Yesterday</option>
             <option value="week">This week</option>
             <option value="lastWeek">Last week</option>
             <option value="month">This month</option>
@@ -937,6 +1218,7 @@ function ReportsTab({ employees, entries, isAdmin, me }) {
       {filtered.length === 0 ? (
         <EmptyState title="No entries in this range" body="Try a wider date range or different filters." />
       ) : (
+        <>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 16 }}>
           <div className="card" style={{ padding: 16 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-soft)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>Hours by employee</div>
@@ -946,7 +1228,9 @@ function ReportsTab({ employees, entries, isAdmin, me }) {
                 <XAxis type="number" tick={{ fontSize: 11, fill: "#5B5F82" }} />
                 <YAxis type="category" dataKey="name" width={90} interval={0} tick={{ fontSize: 11, fill: "#12163E" }} />
                 <Tooltip contentStyle={{ fontSize: 12, borderRadius: 6, border: "1px solid #E2E5F0" }} />
-                <Bar dataKey="hours" fill="#3547E0" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="hours" fill="#3547E0" radius={[0, 4, 4, 0]} isAnimationActive={false}>
+                  <LabelList dataKey="hours" position="right" formatter={(v) => `${v}h`} isAnimationActive={false} style={{ fontSize: 11, fill: "#12163E", fontWeight: 600 }} />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -958,11 +1242,41 @@ function ReportsTab({ employees, entries, isAdmin, me }) {
                 <XAxis type="number" tick={{ fontSize: 11, fill: "#5B5F82" }} />
                 <YAxis type="category" dataKey="name" width={150} interval={0} tick={{ fontSize: 11, fill: "#12163E" }} />
                 <Tooltip contentStyle={{ fontSize: 12, borderRadius: 6, border: "1px solid #E2E5F0" }} />
-                <Bar dataKey="hours" fill="#C9821F" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="hours" fill="#C9821F" radius={[0, 4, 4, 0]} isAnimationActive={false}>
+                  <LabelList dataKey="hours" position="right" formatter={(v) => `${v}h`} isAnimationActive={false} style={{ fontSize: 11, fill: "#12163E", fontWeight: 600 }} />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
+        <div className="card" style={{ padding: 16, marginTop: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-soft)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                Employee work logs {timeView === "hour" ? "by hour of the day" : "by day"}
+              </div>
+              <select className="field" value={timeView} onChange={(e) => setTimeView(e.target.value)} style={{ width: 170 }}>
+                <option value="hour">By hour of the day</option>
+                <option value="day">By day</option>
+              </select>
+            </div>
+            <ResponsiveContainer width="100%" height={420}>
+              <BarChart data={timeData} margin={{ left: 0, right: 20, top: 24 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E2E5F0" vertical={false} />
+                <XAxis dataKey="display" interval={0} height={70} tick={{ fontSize: 11, fill: "#12163E" }}
+                  label={{ value: timeView === "hour" ? "Hour of the day (Sri Lanka time)" : "Date", position: "insideBottom", offset: 0, style: { fontSize: 11, fill: "#5B5F82" } }} />
+                <YAxis domain={[0, (max) => Math.ceil(max / 2)]} tick={{ fontSize: 11, fill: "#5B5F82" }}
+                  label={{ value: "Hours", angle: -90, position: "insideLeft", style: { fontSize: 11, fill: "#5B5F82" } }} />
+                <Tooltip content={<StackTooltip />} cursor={{ fill: "#EAEDFC" }} />
+                <Legend verticalAlign="bottom" wrapperStyle={{ fontSize: 12, paddingTop: 16 }} />
+                {chartEmployees.map((name, i) => (
+                <Bar key={name} dataKey={`s${i}`} name={name} stackId="hrs" fill={employeeColor(i)} stroke="#fff" strokeWidth={1} isAnimationActive={false}>
+                  <LabelList dataKey={`s${i}`} content={<SegmentLabel />} />
+                </Bar>
+              ))}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </>
       )}
     </div>
   );
@@ -987,9 +1301,10 @@ function AdminTab({ employees, setEmployees, entries, setEntries, runningTimers,
   const [newPinConfirm, setNewPinConfirm] = useState("");
   const [pinError, setPinError] = useState("");
 
-    const [exportFrom, setExportFrom] = useState(ymd(new Date()));
+  const [exportFrom, setExportFrom] = useState(ymd(new Date()));
   const [exportTo, setExportTo] = useState(ymd(new Date()));
   const [exportMsg, setExportMsg] = useState("");
+  const [pdfBusy, setPdfBusy] = useState(false);
 
   function exportEntries() {
     if (exportFrom > exportTo) { setExportMsg("The 'From' date must be before the 'To' date."); return; }
@@ -1018,6 +1333,22 @@ function AdminTab({ employees, setEmployees, entries, setEntries, runningTimers,
       console.error(err);
       setExportMsg("Excel export failed. Check the browser console for details.");
     }
+  }
+
+    async function exportPdf() {
+    if (exportFrom > exportTo) { setExportMsg("The 'From' date must be before the 'To' date."); return; }
+    const rows = entries.filter((e) => e.date >= exportFrom && e.date <= exportTo);
+    if (rows.length === 0) { setExportMsg("No entries in that date range."); return; }
+    setExportMsg("");
+    setPdfBusy(true);
+    const name = exportFrom === exportTo ? `report-${exportFrom}.pdf` : `report-${exportFrom}_to_${exportTo}.pdf`;
+    try {
+      await downloadReportPdf(name, exportFrom, exportTo, rows);
+    } catch (err) {
+      console.error(err);
+      setExportMsg("PDF export failed. Check the browser console for details.");
+    }
+    setPdfBusy(false);
   }
 
   async function changePin() {
@@ -1137,6 +1468,7 @@ function AdminTab({ employees, setEmployees, entries, setEntries, runningTimers,
           </div>
           <button className="btn btn-primary" onClick={exportEntries}><Download size={14} />Export CSV</button>
           <button className="btn btn-primary" onClick={exportExcel}><Download size={14} />Export Excel</button>
+          <button className="btn btn-primary" onClick={exportPdf} disabled={pdfBusy}><Download size={14} />{pdfBusy ? "Preparing PDF…" : "Export PDF"}</button>
         </div>
         <p style={{ fontSize: 12, color: "var(--ink-soft)", margin: "10px 0 0" }}>
           Downloads every employee's entries between these dates. Set both dates to the same day for a daily export.

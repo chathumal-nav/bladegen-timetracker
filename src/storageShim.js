@@ -47,25 +47,6 @@ window.storage = {
  }
 }
 
-const toRow = (e) => ({
-  id: e.id,
-  employee: e.employee,
-  project: e.project,
-  description: e.description || '',
-  entry_date: e.date,
-  minutes: e.minutes,
-  created_at: e.createdAt,
-})
-const fromRow = (r) => ({
-  id: r.id,
-  employee: r.employee,
-  project: r.project || '',
-  description: r.description || '',
-  date: r.entry_date,
-  minutes: r.minutes,
-  createdAt: new Date(r.created_at).toISOString(),
-})
-
 window.timeEntries = {
   async list() {
     const all = []
@@ -94,3 +75,24 @@ window.timeEntries = {
     }
   },
 }
+
+const toRow = (e) => ({
+  id: e.id,
+  employee: e.employee,
+  project: e.project,
+  description: e.description || '',
+  justification: e.justification || '',
+  entry_date: e.date,
+  minutes: e.minutes,
+  created_at: e.createdAt,
+})
+const fromRow = (r) => ({
+  id: r.id,
+  employee: r.employee,
+  project: r.project || '',
+  description: r.description || '',
+  justification: r.justification || '',
+  date: r.entry_date,
+  minutes: r.minutes,
+  createdAt: new Date(r.created_at).toISOString(),
+})
