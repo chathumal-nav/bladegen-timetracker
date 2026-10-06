@@ -927,6 +927,7 @@ function TimesheetTab({ me, employees, entries, setEntries, projectSuggestions }
   const [addProject, setAddProject] = useState("");
   const [addHours, setAddHours] = useState("");
   const [error, setError] = useState("");
+  const [addJust, setAddJust] = useState("");
 
   if (employees.length === 0) return <EmptyState title="Add your team first" body="Go to Admin to add teammates before viewing timesheets." />;
   if (!me) return <EmptyState title="Select your name" body="Pick who you are from the dropdown above to see your timesheet." />;
