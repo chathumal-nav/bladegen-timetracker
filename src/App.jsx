@@ -154,7 +154,7 @@ function drawChart({ title, categories, series, stacked = false, color }) {
       series.forEach((se, si) => {
         const v = se.values[i] || 0;
         if (v <= 0) return;
-        ctx.fillStyle = CHART_COLORS[si % CHART_COLORS.length];
+        ctx.fillStyle = colorOf(si);
         ctx.fillRect(bx, yPos(acc + v), bw, yPos(acc) - yPos(acc + v));
         const segH = yPos(acc) - yPos(acc + v);
         const text = fmt(v);
@@ -374,7 +374,7 @@ async function downloadReportPdf(filename, from, to, rows) {
   const names = empList.map((e) => e[0]);
   const timeData = buildTimeChart(rows, names, "hour");
   if (timeData.length) {
-    heading("Employee work logs by hour of the day (Sri Lanka time)");
+    heading("Employee work logs by hour of the day");
     addChart(drawChart({
       title: "Hours by hour of the day", stacked: true,
       categories: timeData.map((r) => r.display),
@@ -1275,7 +1275,7 @@ function ReportsTab({ employees, entries, isAdmin, me }) {
               <BarChart data={timeData} margin={{ left: 0, right: 20, top: 24 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#E2E5F0" vertical={false} />
                 <XAxis dataKey="display" interval={0} height={70} tick={{ fontSize: 11, fill: "#12163E" }}
-                  label={{ value: timeView === "hour" ? "Hour of the day (Sri Lanka time)" : "Date", position: "insideBottom", offset: 0, style: { fontSize: 11, fill: "#5B5F82" } }} />
+                  label={{ value: timeView === "hour" ? "Hour of the day" : "Date", position: "insideBottom", offset: 0, style: { fontSize: 11, fill: "#5B5F82" } }} />
                 <YAxis domain={[0, (max) => Math.ceil(max / 2)]} tick={{ fontSize: 11, fill: "#5B5F82" }}
                   label={{ value: "Hours", angle: -90, position: "insideLeft", style: { fontSize: 11, fill: "#5B5F82" } }} />
                 <Tooltip content={<StackTooltip />} cursor={{ fill: "#EAEDFC" }} />
