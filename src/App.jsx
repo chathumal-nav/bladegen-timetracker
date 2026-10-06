@@ -340,18 +340,29 @@ async function downloadReportPdf(filename, from, to, rows) {
   empList.forEach(([emp, mins]) => {
     const list = rows
       .filter((r) => r.employee === emp)
-      .sort((a, b) => a.project.localeCompare(b.project) || new Date(a.createdAt) - new Date(b.createdAt));
+      .sort(byLoggedTime);
     ensure(30);
     doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(18, 22, 62);
     doc.text(`${emp}  -  ${minutesToHM(mins)}`, M, y + 4); y += 6;
-    table(
-      ["Client", "Task done", "Duration", "Justification (over 30 min)"],
-      list.map((e) => [e.project, e.description || "-", minutesToHM(e.minutes), e.minutes > 30 ? (e.justification || "Not provided") : "-"]),
+       table(
+      ["Client", "Task done", "Duration", "Logged at", "Justification (over 30 min)"],
+      list.map((e) => [
+        e.project,
+        e.description || "-",
+        minutesToHM(e.minutes),
+        toColombo(e.createdAt).slice(0, 16),
+        e.minutes > 30 ? (e.justification || "Not provided") : "-",
+      ]),
       {
         styles: { fontSize: 8, cellPadding: 1.8, overflow: "linebreak" },
-        columnStyles: { 0: { cellWidth: 32 }, 1: { cellWidth: 52 }, 2: { cellWidth: 20, halign: "right" } },
+        columnStyles: {
+          0: { cellWidth: 28 },
+          1: { cellWidth: 42 },
+          2: { cellWidth: 18, halign: "right" },
+          3: { cellWidth: 30 },
+        },
         didParseCell: (d) => {
-          if (d.section === "body" && d.column.index === 3 && d.cell.raw === "Not provided") d.cell.styles.textColor = [194, 59, 59];
+          if (d.section === "body" && d.column.index === 4 && d.cell.raw === "Not provided") d.cell.styles.textColor = [194, 59, 59];
         },
       }
     );
