@@ -6,6 +6,9 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      strategies: 'injectManifest',   // NEW: use our own service worker file
+      srcDir: 'src',                  // NEW: where the file lives
+      filename: 'sw.js',              // NEW: the file name
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
       manifest: {
@@ -23,16 +26,8 @@ export default defineConfig({
           { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
-      workbox: {
-        // Never cache Supabase API calls; always go to the network
-        navigateFallback: '/index.html',
-        runtimeCaching: [
-          {
-            urlPattern: ({ url }) => url.hostname.endsWith('.supabase.co'),
-            handler: 'NetworkOnly',
-          },
-        ],
-      },
+      // The old "workbox: { ... }" block is GONE. It only works with the
+      // auto-generated service worker, and is ignored with injectManifest.
     }),
   ],
 })

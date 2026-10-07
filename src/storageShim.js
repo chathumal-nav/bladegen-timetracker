@@ -76,6 +76,16 @@ window.timeEntries = {
   },
 }
 
+window.pushSubs = {
+  async save(employee, sub) {
+    const json = sub.toJSON()
+    const del = await supabase.from('push_subscriptions').delete().eq('endpoint', json.endpoint)
+    if (del.error) throw del.error
+    const { error } = await supabase.from('push_subscriptions').insert({ endpoint: json.endpoint, employee, subscription: json })
+    if (error) throw error
+  },
+}
+
 const toRow = (e) => ({
   id: e.id,
   employee: e.employee,
