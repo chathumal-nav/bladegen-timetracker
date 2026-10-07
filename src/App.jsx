@@ -628,6 +628,8 @@ export default function App() {
   const [adminReady, setAdminReady] = useState(false);
   const [tab, setTab] = useState("timer");
   const [now, setNow] = useState(Date.now());
+  const [reminderOpen, setReminderOpen] = useState(false);
+  const [lastAck, setLastAck] = useState(0);
 
   async function setAdminPin(pin) {
     setAdminPinState(pin);
@@ -662,6 +664,17 @@ export default function App() {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
+
+    const myRunning = me ? runningTimers[me] : null;
+  useEffect(() => {
+    if (!myRunning) { setReminderOpen(false); setLastAck(0); return; }
+    if (reminderOpen) return;
+    const base = Math.max(new Date(myRunning.startTime).getTime(), lastAck);
+    if (now - base >= 30 * 60 * 1000) setReminderOpen(true);
+  }, [now, myRunning, lastAck, reminderOpen]);
+
+  function stillWorking() { setLastAck(Date.now()); setReminderOpen(false); }
+  function stopFromReminder() { setReminderOpen(false); setTab("timer"); }
 
   useEffect(() => {
     if (meReady && me && employees.length && !employees.includes(me)) {
@@ -742,6 +755,21 @@ export default function App() {
         )
       )}
     </div>
+    
+    {reminderOpen && myRunning && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(18,22,62,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
+          <div className="card" style={{ maxWidth: 380, width: "100%", padding: 24, textAlign: "center" }}>
+            <Clock size={24} style={{ color: "var(--brand)" }} />
+            <h3 style={{ fontSize: 16, margin: "10px 0 4px" }}>Are you still working?</h3>
+            <p style={{ fontSize: 13, color: "var(--ink-soft)", margin: "0 0 4px" }}>{myRunning.project}</p>
+            <p className="mono" style={{ fontSize: 22, fontWeight: 600, margin: "0 0 16px" }}>{formatClock((now - new Date(myRunning.startTime).getTime()) / 1000)}</p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+              <button className="btn btn-primary" onClick={stillWorking}><Check size={14} />Yes, still working</button>
+              <button className="btn" onClick={stopFromReminder}><Square size={14} />No, stop timer</button>
+            </div>
+          </div>
+        </div>
+      )}
   </div>
   );
 }
@@ -831,6 +859,7 @@ function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunnin
 
   async function startTimer() {
     if (!project.trim()) { setError("Enter a project before starting the timer."); return; }
+    if (!description.trim()) { setError("Enter a description before starting the timer."); return; }
     setError("");
     const next = { ...runningTimers, [me]: { project: project.trim(), description: description.trim(), startTime: new Date().toISOString() } };
     await setRunningTimers(next);
@@ -860,6 +889,7 @@ function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunnin
     const m = parseFloat(manualMinutes || "0");
     const totalMinutes = Math.round((isNaN(h) ? 0 : h) * 60 + (isNaN(m) ? 0 : m));
     if (!manualProject.trim()) { setError("Enter a project for the manual entry."); return; }
+    if (!manualDesc.trim()) { setError("Enter a description for the manual entry."); return; }
     if (totalMinutes <= 0) { setError("Enter a duration greater than zero."); return; }
     if (totalMinutes > 30 && !manualJust.trim()) { setError("Entries over 30 minutes need a justification."); return; }
     setError("");
@@ -905,7 +935,7 @@ function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunnin
                 </select>
               </div>
               <div>
-                <label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Description </label>
+                <label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Description (required)</label>
                 <input className="field" placeholder="What are you working on?" value={description} onChange={(e) => setDescription(e.target.value)} style={{ marginTop: 4 }} />
               </div>
             </div>
@@ -931,7 +961,7 @@ function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunnin
             </select></div>
             <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Hours</label><input type="number" min="0" className="field" value={manualHours} onChange={(e) => setManualHours(e.target.value)} style={{ marginTop: 4 }} /></div>
             <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Minutes</label><input type="number" min="0" max="59" className="field" value={manualMinutes} onChange={(e) => setManualMinutes(e.target.value)} style={{ marginTop: 4 }} /></div>
-            <div style={{ gridColumn: "1 / -1" }}><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Description</label><input className="field" value={manualDesc} onChange={(e) => setManualDesc(e.target.value)} style={{ marginTop: 4 }} /></div>
+            <div style={{ gridColumn: "1 / -1" }}><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Description (required)</label><input className="field" value={manualDesc} onChange={(e) => setManualDesc(e.target.value)} style={{ marginTop: 4 }} /></div>
             <div style={{ gridColumn: "1 / -1" }}><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Justification (required if over 30 minutes)</label><input className="field" value={manualJust} onChange={(e) => setManualJust(e.target.value)} style={{ marginTop: 4 }} /></div>
             {error && <div style={{ gridColumn: "1 / -1", display: "flex", gap: 6, alignItems: "center", color: "var(--brick)", fontSize: 12.5 }}><AlertCircle size={14} />{error}</div>}
             <div style={{ gridColumn: "1 / -1" }}><button className="btn btn-primary" onClick={addManual}><Check size={14} />Add entry</button></div>
@@ -964,6 +994,8 @@ function TimesheetTab({ me, employees, entries, setEntries, projectSuggestions }
   const [addHours, setAddHours] = useState("");
   const [error, setError] = useState("");
   const [addJust, setAddJust] = useState("");
+  const [addMinutes, setAddMinutes] = useState("");
+  const [addDesc, setAddDesc] = useState("");
 
   if (employees.length === 0) return <EmptyState title="Add your team first" body="Go to Admin to add teammates before viewing timesheets." />;
   if (!me) return <EmptyState title="Select your name" body="Pick who you are from the dropdown above to see your timesheet." />;
@@ -981,16 +1013,18 @@ function TimesheetTab({ me, employees, entries, setEntries, projectSuggestions }
   const dayTotals = dayKeys.map((k) => weekEntries.filter((e) => e.date === k).reduce((s, e) => s + e.minutes, 0));
   const grandTotal = dayTotals.reduce((s, m) => s + m, 0);
 
-  async function quickAdd() {
+   async function quickAdd() {
     const h = parseFloat(addHours || "0");
-    const mins = Math.round((isNaN(h) ? 0 : h) * 60);
+    const m = parseFloat(addMinutes || "0");
+    const mins = Math.round((isNaN(h) ? 0 : h) * 60 + (isNaN(m) ? 0 : m));
     if (!addProject.trim()) { setError("Enter a project."); return; }
-    if (mins <= 0) { setError("Enter hours greater than zero."); return; }
+    if (!addDesc.trim()) { setError("Enter a description."); return; }
+    if (mins <= 0) { setError("Enter a duration greater than zero."); return; }
     if (mins > 30 && !addJust.trim()) { setError("Entries over 30 minutes need a justification."); return; }
     setError("");
-    const entry = { id: uid(), employee: me, project: addProject.trim(), description: "", justification: addJust.trim(), date: dayKeys[addDay], minutes: mins, createdAt: new Date().toISOString() };
+    const entry = { id: uid(), employee: me, project: addProject.trim(), description: addDesc.trim(), justification: addJust.trim(), date: dayKeys[addDay], minutes: mins, createdAt: new Date().toISOString() };
     await setEntries([entry, ...entries]);
-    setAddProject(""); setAddJust(""); setAddHours(""); setAddOpen(false);
+    setAddProject(""); setAddDesc(""); setAddJust(""); setAddHours(""); setAddMinutes(""); setAddOpen(false);
   }
 
   return (
@@ -1019,7 +1053,13 @@ function TimesheetTab({ me, employees, entries, setEntries, projectSuggestions }
             </select>
           </div>
           <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Hours</label>
-            <input type="number" min="0" step="0.25" className="field" value={addHours} onChange={(e) => setAddHours(e.target.value)} style={{ marginTop: 4 }} />
+            <input type="number" min="0" step="1" className="field" value={addHours} onChange={(e) => setAddHours(e.target.value)} style={{ marginTop: 4 }} />
+          </div>
+          <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Minutes</label>
+            <input type="number" min="0" max="59" step="1" className="field" value={addMinutes} onChange={(e) => setAddMinutes(e.target.value)} style={{ marginTop: 4 }} />
+          </div>
+          <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Description (required)</label>
+            <input className="field" value={addDesc} onChange={(e) => setAddDesc(e.target.value)} style={{ marginTop: 4 }} />
           </div>
           <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Justification (if over 30 min)</label>
             <input className="field" value={addJust} onChange={(e) => setAddJust(e.target.value)} style={{ marginTop: 4 }} />
