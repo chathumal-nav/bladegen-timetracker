@@ -272,7 +272,7 @@ async function downloadXlsx(filename, rows) {
     s2.addRow([emp, ...vals, Number(vals.reduce((a, b) => a + b, 0).toFixed(2))]);
   });
   const c2 = drawChart({ title: "Hours by employee and project", categories: employees, series: projSeries, stacked: true });
-  s2.addImage(wb.addImage({ base64: c2.url, extension: "png" }), { tl: { col: 0, row: employees.length + 3 }, ext: { width: c2.width, height: c2.height } });
+  s2.addImage(wb.addImage({ base64: c2.url.replace(/^data:image\/\w+;base64,/, ""), extension: "png" }), { tl: { col: 0, row: employees.length + 3 }, ext: { width: c2.width, height: c2.height } });
 
   // Sheet 3: daily totals per employee
   const s3 = wb.addWorksheet("Daily Totals");
@@ -285,7 +285,7 @@ async function downloadXlsx(filename, rows) {
     s3.addRow([d, ...vals, Number(vals.reduce((a, b) => a + b, 0).toFixed(2))]);
   });
   const c3 = drawChart({ title: "Daily hours per employee", categories: dates, series: empSeries, stacked: false });
-  s3.addImage(wb.addImage({ base64: c3.url, extension: "png" }), { tl: { col: 0, row: dates.length + 3 }, ext: { width: c3.width, height: c3.height } });
+  s3.addImage(wb.addImage({ base64: c3.url.replace(/^data:image\/\w+;base64,/, ""), extension: "png" }), { tl: { col: 0, row: dates.length + 3 }, ext: { width: c3.width, height: c3.height } });
 
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
@@ -628,12 +628,14 @@ function useEntries() {
   return [entries, persist, ready];
 }
 
-const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+const VAPID_PUBLIC_KEY = (import.meta.env.VITE_VAPID_PUBLIC_KEY || "").trim();
 
 function urlBase64ToUint8Array(b64) {
-  const padding = "=".repeat((4 - (b64.length % 4)) % 4);
-  const raw = atob((b64 + padding).replace(/-/g, "+").replace(/_/g, "/"));
-  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+  const base64 = (b64 + "=".repeat((4 - (b64.length % 4)) % 4))
+    .replace(/-/g, "+")
+    .replace(/_/g, "/")
+    .replace(/[^A-Za-z0-9+/=]/g, "");  // strip any non-base64 chars (BOM, smart quotes, zero-width spaces, etc.)
+  return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
 }
 
 // ---- In-app chime (no audio file needed) ----
