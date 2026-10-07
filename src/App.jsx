@@ -557,6 +557,13 @@ height: clamp(44px, 6vw, 72px); width: auto; display: block;
 @media (max-width: 720px) {
   .ldg .hide-mobile { display: none; }
 }
+.ldg .switch-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+.ldg .switch { position: relative; width: 42px; height: 24px; border-radius: 999px; border: none; background: #C9CDE0; padding: 0; transition: background 0.15s; }
+.ldg .switch.on { background: var(--brand); }
+.ldg .switch .knob { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform 0.15s; }
+.ldg .switch.on .knob { transform: translateX(18px); }
+.ldg .switch:disabled { opacity: 0.5; cursor: not-allowed; }  
+
 `;
 
 function useShared(key, fallback) {
@@ -660,41 +667,75 @@ function usePush(me) {
   const supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
   const [permission, setPermission] = useState(supported ? Notification.permission : "unsupported");
+  const [subscribed, setSubscribed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
-  async function sync(name) {
-    const reg = await navigator.serviceWorker.ready;
-    let sub = await reg.pushManager.getSubscription();
-    if (!sub) {
-      sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-      });
-    }
-    await window.pushSubs.save(name, sub);
-  }
+  const getReg = () => Promise.race([
+    navigator.serviceWorker.ready,
+    new Promise((_, rej) => setTimeout(() => rej(new Error("Service worker is not ready. Reload the app and try again.")), 10000)),
+  ]);
 
-  // keep this device's subscription pointed at whoever is selected in "You are"
+  // On load / when the name changes: reflect the REAL state and keep this device linked to the selected person
   useEffect(() => {
-    if (!supported || !me || Notification.permission !== "granted") return;
-    sync(me).catch((e) => console.error("[push] sync failed", e));
+    if (!supported || !me || Notification.permission !== "granted") { setSubscribed(false); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const reg = await getReg();
+        const sub = await reg.pushManager.getSubscription();
+        if (!sub) { if (!cancelled) setSubscribed(false); return; }
+        await window.pushSubs.save(me, sub);
+        if (!cancelled) { setSubscribed(true); setError(""); }
+      } catch (e) {
+        console.error("[push] sync failed", e);
+        if (!cancelled) setSubscribed(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [me]);
 
-  async function enable() {
-    if (!supported || !me) return;
-    setBusy(true);
+  async function turnOn() {
+    if (!VAPID_PUBLIC_KEY) throw new Error("VITE_VAPID_PUBLIC_KEY is missing from this build. Add it in Vercel and redeploy.");
+    if (!window.pushSubs) throw new Error("window.pushSubs is missing. Check storageShim.js.");
+    const perm = await Notification.requestPermission();
+    setPermission(perm);
+    if (perm !== "granted") throw new Error("Notification permission was not granted.");
+    const reg = await getReg();
+    const old = await reg.pushManager.getSubscription();
+    if (old) await old.unsubscribe();   // drop any subscription made with a different key
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+    });
+    await window.pushSubs.save(me, sub);
+    setSubscribed(true);
+  }
+
+  async function turnOff() {
+    const reg = await getReg();
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      try { await window.pushSubs.remove(sub.endpoint); } catch (e) { console.error(e); }
+      await sub.unsubscribe();
+    }
+    setSubscribed(false);
+  }
+
+  async function toggle() {
+    if (!supported || !me || busy) return;
+    setBusy(true); setError("");
     try {
-      const perm = await Notification.requestPermission();
-      setPermission(perm);
-      if (perm === "granted") await sync(me);
+      if (subscribed) await turnOff(); else await turnOn();
     } catch (e) {
-      console.error("[push] enable failed", e);
-      alert("Could not enable reminders. Please try again.");
+      console.error("[push] toggle failed", e);
+      setSubscribed(false);
+      setError(e?.message || String(e));
     }
     setBusy(false);
   }
 
-  return { supported, permission, enable, busy, iosNeedsInstall: isIOS && !supported };
+  return { supported, permission, subscribed, busy, error, toggle, iosNeedsInstall: isIOS && !supported };
 }
 
 export default function App() {
@@ -841,16 +882,21 @@ useEffect(() => { if (reminderOpen) playChime(); }, [reminderOpen]);
             {employees.map((emp) => <option key={emp} value={emp}>{emp}</option>)}
           </select>
 
-          {push.supported && push.permission === "default" && (
-            <button className="btn btn-primary" onClick={push.enable} disabled={!me || push.busy} style={{ marginTop: 4 }}>
-              <Bell size={14} />{push.busy ? "Enabling…" : "Enable reminders"}
-            </button>
-          )}
-          {push.supported && push.permission === "granted" && (
-            <span style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>Reminders on ✓</span>
+          {push.supported && push.permission !== "denied" && (
+            <div className="switch-row">
+              <Bell size={13} />
+              <span>Reminders {push.subscribed ? "on" : "off"}</span>
+              <button type="button" role="switch" aria-checked={push.subscribed} aria-label="Toggle reminders"
+                className={`switch${push.subscribed ? " on" : ""}`} onClick={push.toggle} disabled={!me || push.busy}>
+                <span className="knob" />
+              </button>
+            </div>
           )}
           {push.supported && push.permission === "denied" && (
             <span style={{ fontSize: 11.5, color: "var(--brick)", maxWidth: 190, textAlign: "right" }}>Notifications are blocked. Allow them in browser settings.</span>
+          )}
+          {push.error && (
+            <span style={{ fontSize: 11.5, color: "var(--brick)", maxWidth: 220, textAlign: "right" }}>{push.error}</span>
           )}
           {push.iosNeedsInstall && (
             <span style={{ fontSize: 11.5, color: "var(--ink-soft)", maxWidth: 190, textAlign: "right" }}>For reminders on iPhone: Share → Add to Home Screen, then open from there.</span>

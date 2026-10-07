@@ -46,7 +46,7 @@ Deno.serve(async (req) => {
 
     const { data: subs } = await supabase
       .from("push_subscriptions").select("endpoint, subscription").eq("employee", employee);
-
+      if (!subs || subs.length === 0) continue; // nobody to notify yet, so don't mark this interval as sent
     const payload = JSON.stringify({
       title: "Are you still working?",
       body: `${t.project} · ${fmt(Math.round(elapsed / 60000))}`,
