@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, LabelList, ResponsiveContainer, Cell } from "recharts";
-import { Play, Square, Plus, Trash2, Clock, LayoutGrid, BarChart2, Settings, ChevronLeft, ChevronRight, Pencil, Check, X, AlertCircle, Lock, LogOut, Download } from "lucide-react";
+import { Play, Square, Plus, Trash2, Clock, LayoutGrid, BarChart2, Settings, ChevronLeft, ChevronRight, Pencil, Check, X, AlertCircle, Lock, LogOut, Download, Bell } from "lucide-react";
+
+
+// Reminder interval. Set TEST_MODE to false before going live.
+const TEST_MODE = false;
+const REMINDER_MS = TEST_MODE ? 5 * 1000 : 30 * 60 * 1000;
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -616,6 +621,82 @@ function useEntries() {
   return [entries, persist, ready];
 }
 
+const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+
+function urlBase64ToUint8Array(b64) {
+  const padding = "=".repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + padding).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+
+// ---- In-app chime (no audio file needed) ----
+let audioCtx;
+function unlockAudio() {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+  } catch (e) {}
+}
+function playChime() {
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime;
+  [880, 1174.66, 880].forEach((freq, i) => {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const start = t0 + i * 0.28;
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(0.35, start + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.25);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(start);
+    osc.stop(start + 0.27);
+  });
+  if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+}
+
+function usePush(me) {
+  const supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const [permission, setPermission] = useState(supported ? Notification.permission : "unsupported");
+  const [busy, setBusy] = useState(false);
+
+  async function sync(name) {
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+    }
+    await window.pushSubs.save(name, sub);
+  }
+
+  // keep this device's subscription pointed at whoever is selected in "You are"
+  useEffect(() => {
+    if (!supported || !me || Notification.permission !== "granted") return;
+    sync(me).catch((e) => console.error("[push] sync failed", e));
+  }, [me]);
+
+  async function enable() {
+    if (!supported || !me) return;
+    setBusy(true);
+    try {
+      const perm = await Notification.requestPermission();
+      setPermission(perm);
+      if (perm === "granted") await sync(me);
+    } catch (e) {
+      console.error("[push] enable failed", e);
+      alert("Could not enable reminders. Please try again.");
+    }
+    setBusy(false);
+  }
+
+  return { supported, permission, enable, busy, iosNeedsInstall: isIOS && !supported };
+}
+
 export default function App() {
   const [employees, setEmployees, employeesReady] = useShared("team-employees", []);
   const [entries, setEntries, entriesReady] = useEntries();
@@ -628,6 +709,8 @@ export default function App() {
   const [adminReady, setAdminReady] = useState(false);
   const [tab, setTab] = useState("timer");
   const [now, setNow] = useState(Date.now());
+  const [reminderOpen, setReminderOpen] = useState(false);
+  const [lastAck, setLastAck] = useState(0);
 
   async function setAdminPin(pin) {
     setAdminPinState(pin);
@@ -662,6 +745,54 @@ export default function App() {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  const myRunning = me ? runningTimers[me] : null;
+useEffect(() => {
+  if (!myRunning) { setReminderOpen(false); setLastAck(0); return; }
+  if (reminderOpen) return;
+  const base = Math.max(new Date(myRunning.startTime).getTime(), lastAck);
+  if (now - base >= REMINDER_MS) setReminderOpen(true);
+}, [now, myRunning, lastAck, reminderOpen]);
+
+function stillWorking() { setLastAck(Date.now()); setReminderOpen(false); }
+function stopFromReminder() {
+  setLastAck(Date.now()); // prevents the popup from instantly reopening
+  setReminderOpen(false);
+  setTab("timer");
+}
+
+const push = usePush(me);
+const pendingReminder = useRef(new URLSearchParams(window.location.search).has("reminder"));
+
+// allow sound after the user's first tap/click
+useEffect(() => {
+  window.addEventListener("pointerdown", unlockAudio);
+  window.addEventListener("keydown", unlockAudio);
+  return () => {
+    window.removeEventListener("pointerdown", unlockAudio);
+    window.removeEventListener("keydown", unlockAudio);
+  };
+}, []);
+
+// notification tapped while the app was already open
+useEffect(() => {
+  if (!("serviceWorker" in navigator)) return;
+  const onMsg = (e) => { if (e.data && e.data.type === "reminder") setReminderOpen(true); };
+  navigator.serviceWorker.addEventListener("message", onMsg);
+  return () => navigator.serviceWorker.removeEventListener("message", onMsg);
+}, []);
+
+// notification tapped while the app was closed (opened with ?reminder=1)
+useEffect(() => {
+  if (pendingReminder.current && myRunning) {
+    pendingReminder.current = false;
+    setReminderOpen(true);
+    window.history.replaceState(null, "", "/");
+  }
+}, [myRunning]);
+
+// chime whenever the popup opens
+useEffect(() => { if (reminderOpen) playChime(); }, [reminderOpen]);
 
   useEffect(() => {
     if (meReady && me && employees.length && !employees.includes(me)) {
@@ -709,6 +840,22 @@ export default function App() {
             <option value="">Select your name…</option>
             {employees.map((emp) => <option key={emp} value={emp}>{emp}</option>)}
           </select>
+
+          {push.supported && push.permission === "default" && (
+            <button className="btn btn-primary" onClick={push.enable} disabled={!me || push.busy} style={{ marginTop: 4 }}>
+              <Bell size={14} />{push.busy ? "Enabling…" : "Enable reminders"}
+            </button>
+          )}
+          {push.supported && push.permission === "granted" && (
+            <span style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>Reminders on ✓</span>
+          )}
+          {push.supported && push.permission === "denied" && (
+            <span style={{ fontSize: 11.5, color: "var(--brick)", maxWidth: 190, textAlign: "right" }}>Notifications are blocked. Allow them in browser settings.</span>
+          )}
+          {push.iosNeedsInstall && (
+            <span style={{ fontSize: 11.5, color: "var(--ink-soft)", maxWidth: 190, textAlign: "right" }}>For reminders on iPhone: Share → Add to Home Screen, then open from there.</span>
+          )}
+
         </div>
       </header>
 
@@ -742,6 +889,22 @@ export default function App() {
         )
       )}
     </div>
+
+      {reminderOpen && myRunning && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(18,22,62,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
+          <div className="card" style={{ maxWidth: 380, width: "100%", padding: 24, textAlign: "center" }}>
+            <Clock size={24} style={{ color: "var(--brand)" }} />
+            <h3 style={{ fontSize: 16, margin: "10px 0 4px" }}>Are you still working?</h3>
+            <p style={{ fontSize: 13, color: "var(--ink-soft)", margin: "0 0 4px" }}>{myRunning.project}</p>
+            <p className="mono" style={{ fontSize: 22, fontWeight: 600, margin: "0 0 16px" }}>{formatClock((now - new Date(myRunning.startTime).getTime()) / 1000)}</p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+              <button className="btn btn-primary" onClick={stillWorking}><Check size={14} />Yes, still working</button>
+              <button className="btn" onClick={stopFromReminder}><Square size={14} />No, stop timer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
   </div>
   );
 }
@@ -1498,7 +1661,7 @@ function AdminTab({ employees, setEmployees, entries, setEntries, runningTimers,
           {employees.length === 0 && <p style={{ fontSize: 13, color: "var(--ink-soft)" }}>No teammates yet — add your first below.</p>}
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-          <input className="field" placeholder="New teammate name" value={newName} onChange={(e) => setNewName(e.target.value)} style={{ maxWidth: 260 }} onKeyDown={(e) => e.key === "Enter" && addEmployee()} />
+          <input className="field" placeholder="New Employee Name" value={newName} onChange={(e) => setNewName(e.target.value)} style={{ maxWidth: 260 }} onKeyDown={(e) => e.key === "Enter" && addEmployee()} />
           <button className="btn btn-primary" onClick={addEmployee}><Plus size={14} />Add</button>
         </div>
         {error && <div style={{ display: "flex", gap: 6, alignItems: "center", color: "var(--brick)", fontSize: 12.5, marginTop: 8 }}><AlertCircle size={14} />{error}</div>}
