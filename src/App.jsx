@@ -79,9 +79,33 @@ function downloadCSV(filename, rows) {
 
 const CHART_COLORS = ["#3547E0", "#C9821F", "#2E9E6B", "#C23B3B", "#7A4FD1", "#16A3B8", "#D1569A", "#6B7280", "#9AAE2A", "#E0742F"];
 const paletteColor = (i) => (i < CHART_COLORS.length ? CHART_COLORS[i] : `hsl(${Math.round((i * 137.5) % 360)} 60% 45%)`);
+const PROJECT_COLORS = {
+  "Real Estate Tool": "#515fdde7",
+  "DeepDish": "#8055d4",
+  "Social Listening": "#c0d838",
+  "Revello": "#D1569A",
+  "Denza": "#8E1B8E",
+  "Stanley": "#1F2937",
+  "Barista": "#884e17",
+  "Upali's": "#77eb46",
+  "W15": "#248d5e",
+  "Roots": "#01978b",
+  "Tilapiya": "#C23B3B",
+  "StemLink": "#16A3B8",
+  "Food Studio": "#6B7280",
+  "Waves": "#f17528",
+  "Celeste": "#e7a64b",
+  "Salt House": "#F2C94C",
+};
+function projectColor(name) {
+  if (PROJECT_COLORS[name]) return PROJECT_COLORS[name];
+  let h = 0;
+  for (const ch of String(name)) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  return `hsl(${h} 55% 45%)`;
+}
 
 function drawChart({ title, categories, series, stacked = false, color }) {
-  const colorOf = (si) => color || paletteColor(si);
+  const colorOf = (si) => color || series[si]?.color || paletteColor(si);
   const scale = 2;
   const perCat = stacked ? 80 : Math.max(64, series.length * 30 + 20);
   const W = Math.min(1600, Math.max(760, categories.length * perCat + 120));
@@ -331,6 +355,7 @@ async function downloadReportPdf(filename, from, to, rows) {
   const empNames = empList.map((e) => e[0]);
   const empProjSeries = projList.map(([p]) => ({
     name: p,
+    color: projectColor(p),
     values: empNames.map((emp) => Number((rows.filter((r) => r.employee === emp && r.project === p).reduce((s, r) => s + r.minutes, 0) / 60).toFixed(2))),
   }));
   addChart(drawChart({ title: "Hours by employee and client", stacked: true, categories: empNames, series: empProjSeries }));
