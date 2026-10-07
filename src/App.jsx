@@ -628,8 +628,6 @@ export default function App() {
   const [adminReady, setAdminReady] = useState(false);
   const [tab, setTab] = useState("timer");
   const [now, setNow] = useState(Date.now());
-  const [reminderOpen, setReminderOpen] = useState(false);
-  const [lastAck, setLastAck] = useState(0);
 
   async function setAdminPin(pin) {
     setAdminPinState(pin);
@@ -664,17 +662,6 @@ export default function App() {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
-
-    const myRunning = me ? runningTimers[me] : null;
-  useEffect(() => {
-    if (!myRunning) { setReminderOpen(false); setLastAck(0); return; }
-    if (reminderOpen) return;
-    const base = Math.max(new Date(myRunning.startTime).getTime(), lastAck);
-    if (now - base >= 30 * 60 * 1000) setReminderOpen(true);
-  }, [now, myRunning, lastAck, reminderOpen]);
-
-  function stillWorking() { setLastAck(Date.now()); setReminderOpen(false); }
-  function stopFromReminder() { setReminderOpen(false); setTab("timer"); }
 
   useEffect(() => {
     if (meReady && me && employees.length && !employees.includes(me)) {
@@ -755,21 +742,6 @@ export default function App() {
         )
       )}
     </div>
-    
-    {reminderOpen && myRunning && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(18,22,62,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
-          <div className="card" style={{ maxWidth: 380, width: "100%", padding: 24, textAlign: "center" }}>
-            <Clock size={24} style={{ color: "var(--brand)" }} />
-            <h3 style={{ fontSize: 16, margin: "10px 0 4px" }}>Are you still working?</h3>
-            <p style={{ fontSize: 13, color: "var(--ink-soft)", margin: "0 0 4px" }}>{myRunning.project}</p>
-            <p className="mono" style={{ fontSize: 22, fontWeight: 600, margin: "0 0 16px" }}>{formatClock((now - new Date(myRunning.startTime).getTime()) / 1000)}</p>
-            <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
-              <button className="btn btn-primary" onClick={stillWorking}><Check size={14} />Yes, still working</button>
-              <button className="btn" onClick={stopFromReminder}><Square size={14} />No, stop timer</button>
-            </div>
-          </div>
-        </div>
-      )}
   </div>
   );
 }
