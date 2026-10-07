@@ -79,9 +79,13 @@ window.timeEntries = {
 window.pushSubs = {
   async save(employee, sub) {
     const json = sub.toJSON()
-    const del = await supabase.from('push_subscriptions').delete().eq('endpoint', json.endpoint)
-    if (del.error) throw del.error
-    const { error } = await supabase.from('push_subscriptions').insert({ endpoint: json.endpoint, employee, subscription: json })
+    const { error } = await supabase.rpc('save_push_subscription', {
+      p_endpoint: json.endpoint, p_employee: employee, p_subscription: json,
+    })
+    if (error) throw error
+  },
+  async remove(endpoint) {
+    const { error } = await supabase.rpc('remove_push_subscription', { p_endpoint: endpoint })
     if (error) throw error
   },
 }
