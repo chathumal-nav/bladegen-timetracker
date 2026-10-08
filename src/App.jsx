@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, LabelList, ResponsiveContainer, Cell } from "recharts";
-import { Play, Square, Plus, Trash2, Clock, LayoutGrid, BarChart2, Settings, ChevronLeft, ChevronRight, Pencil, Check, X, AlertCircle, Lock, LogOut, Download, Bell } from "lucide-react";
+import { Play, Square, Plus, Trash2, Clock, LayoutGrid, BarChart2, Settings, ChevronLeft, ChevronRight, Pencil, Check, X, AlertCircle, Lock, LogOut, Download, Bell, Sun, Sunset, Moon } from "lucide-react";
 
 
 // Reminder interval. Set TEST_MODE to false before going live.
@@ -1037,6 +1037,27 @@ function TabBtn({ icon, label, active, onClick }) {
   );
 }
 
+function Greeting({ name, now }) {
+  const hour = parseInt(clockHM(new Date(now).toISOString()).slice(0, 2), 10);
+  let text = "Good evening", Icon = Moon, bg = "var(--brand-tint)", fg = "var(--brand)";
+  if (hour >= 5 && hour < 12) { text = "Good morning"; Icon = Sun; bg = "var(--amber-tint)"; fg = "var(--amber)"; }
+  else if (hour >= 12 && hour < 17) { text = "Good afternoon"; Icon = Sun; bg = "var(--amber-tint)"; fg = "var(--amber)"; }
+  else if (hour >= 17 && hour < 21) { text = "Good evening"; Icon = Sunset; bg = "var(--amber-tint)"; fg = "var(--amber)"; }
+  const dateText = new Date(now).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Colombo" });
+  return (
+    <div className="stamp-card" style={{ padding: "22px 26px", display: "flex", alignItems: "center", justifyContent: "center", gap: 18, textAlign: "center" }}>
+      <div style={{ width: 52, height: 52, borderRadius: "50%", background: bg, color: fg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <Icon size={26} />
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ fontSize: 13, color: "var(--ink-soft)" }}>{text},</div>
+        <div className="disp" style={{ fontSize: "clamp(22px, 4.5vw, 30px)", fontWeight: 700, lineHeight: 1.15 }}>{name} 👋</div>
+        <div style={{ fontSize: 12.5, color: "var(--ink-faint)", marginTop: 3 }}>{dateText}</div>
+      </div>
+    </div>
+  );
+}
+
 function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunningTimers, now, projectSuggestions }) {
   const [project, setProject] = useState("");
   const [description, setDescription] = useState("");
@@ -1111,6 +1132,7 @@ function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunnin
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 18 }}>
+      <Greeting name={me} now={now} />
       <div className="stamp-card" style={{ padding: 50 }}>
         {myTimer ? (
           <div>
@@ -1120,7 +1142,7 @@ function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunnin
             </div>
             <div className="mono timer-digits" style={{ fontWeight: 600, lineHeight: 1 }}>{formatClock(elapsedSec)}</div>
             <div style={{ marginTop: 10, fontSize: 14, fontWeight: 500, textAlign: "center" }}>{myTimer.project}</div>
-{myTimer.description && <div style={{ fontSize: 13, color: "var(--ink-soft)", marginTop: 2, textAlign: "center" }}>{myTimer.description}</div>}
+            {myTimer.description && <div style={{ fontSize: 13, color: "var(--ink-soft)", marginTop: 2, textAlign: "center" }}>{myTimer.description}</div>}
             <div style={{ marginTop: 16, maxWidth: 520, marginLeft: "auto", marginRight: "auto" }}>
               <label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Justification (required if the session is over 30 minutes)</label>
               <input className="field" placeholder="Why did this take this long?" value={justification} onChange={(e) => setJustification(e.target.value)} style={{ marginTop: 4 }} />
