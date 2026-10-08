@@ -14,6 +14,8 @@ import { AdminTab } from "./components/admin/AdminTab";
 import { PinGate } from "./components/auth/PinGate";
 import { ReminderModal } from "./components/modals/ReminderModal";
 
+const MAX_TIMER_MS = 16 * 60 * 60 * 1000;
+
 export default function App() {
   const [employees, setEmployees, employeesReady] = useShared("team-employees", []);
   const [entries, setEntries, entriesReady] = useEntries();
@@ -63,7 +65,47 @@ export default function App() {
     return () => clearInterval(t);
   }, []);
 
-  const myRunning = me ? runningTimers[me] : null;
+  // Keep running timers in sync with database across all active clients and auto-clean zombie timers
+  useEffect(() => {
+    const refreshTimers = async () => {
+      try {
+        const fresh = await loadStore("timers-running", true, null);
+        if (fresh && typeof fresh === "object") {
+          const nowMs = Date.now();
+          const clean = {};
+          let hadExpired = false;
+          for (const [emp, t] of Object.entries(fresh)) {
+            if (t && t.startTime && (nowMs - new Date(t.startTime).getTime()) < MAX_TIMER_MS) {
+              clean[emp] = t;
+            } else {
+              hadExpired = true;
+            }
+          }
+          setRunningTimers(clean);
+          if (hadExpired) {
+            saveStore("timers-running", true, clean);
+          }
+        }
+      } catch (e) {
+        console.error("refreshTimers error:", e);
+      }
+    };
+
+    const interval = setInterval(refreshTimers, 10000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") refreshTimers();
+    };
+    window.addEventListener("focus", refreshTimers);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", refreshTimers);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [setRunningTimers]);
+
+  const myRunning = me && runningTimers[me] && (now - new Date(runningTimers[me].startTime).getTime() < MAX_TIMER_MS) ? runningTimers[me] : null;
   useEffect(() => {
     if (!myRunning) { setReminderOpen(false); setLastAck(0); return; }
     if (reminderOpen) return;

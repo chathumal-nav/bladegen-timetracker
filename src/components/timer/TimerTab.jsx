@@ -3,9 +3,23 @@ import { Play, Square, Plus, Trash2, Check, X, AlertCircle } from "lucide-react"
 import { ymd, clockHM } from "../../utils/date";
 import { minutesToHM, hmToMinutes, formatClock } from "../../utils/time";
 import { uid } from "../../utils/entries";
+import { loadStore } from "../../utils/storage";
 import { PROJECTS } from "../../constants/projects";
 import { Greeting } from "../common/Greeting";
 import { EmptyState } from "../common/EmptyState";
+
+const MAX_TIMER_MS = 16 * 60 * 60 * 1000; // 16 hours max threshold for running timer
+
+function pruneStaleTimers(timersMap) {
+  const nowMs = Date.now();
+  const clean = {};
+  for (const [emp, t] of Object.entries(timersMap || {})) {
+    if (t && t.startTime && (nowMs - new Date(t.startTime).getTime()) < MAX_TIMER_MS) {
+      clean[emp] = t;
+    }
+  }
+  return clean;
+}
 
 export function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunningTimers, now, projectSuggestions }) {
   const [project, setProject] = useState("");
@@ -31,18 +45,20 @@ export function TimerTab({ me, employees, entries, setEntries, runningTimers, se
     return <EmptyState title="Select your name" body="Pick who you are from the dropdown above to start tracking time." />;
   }
 
-  const myTimer = runningTimers[me];
+  const myTimer = runningTimers[me] && (now - new Date(runningTimers[me].startTime).getTime() < MAX_TIMER_MS) ? runningTimers[me] : null;
   const elapsedSec = myTimer ? (now - new Date(myTimer.startTime).getTime()) / 1000 : 0;
 
   async function startTimer() {
     if (!project.trim()) { setError("Enter a project before starting the timer."); return; }
     if (!description.trim()) { setError("Enter a description before starting the timer."); return; }
     setError("");
-    const next = { ...runningTimers, [me]: { project: project.trim(), description: description.trim(), startTime: new Date().toISOString() } };
-    await setRunningTimers(next);
+    const latest = await loadStore("timers-running", true, {});
+    const clean = pruneStaleTimers(latest);
+    clean[me] = { project: project.trim(), description: description.trim(), startTime: new Date().toISOString() };
+    await setRunningTimers(clean);
   }
-    async function stopTimer() {
-    const t = runningTimers[me];
+  async function stopTimer() {
+    const t = myTimer;
     if (!t) return;
     const startMs = new Date(t.startTime).getTime();
     const minutes = Math.max(1, Math.round((Date.now() - startMs) / 60000));
@@ -50,17 +66,26 @@ export function TimerTab({ me, employees, entries, setEntries, runningTimers, se
     setError("");
     const endIso = new Date().toISOString();
     const entry = { id: uid(), employee: me, project: t.project, description: t.description, justification: justification.trim(), date: ymd(new Date(t.startTime)), workStart: clockHM(t.startTime), workEnd: clockHM(endIso), minutes, createdAt: endIso };
-    const nextTimers = { ...runningTimers };
-    delete nextTimers[me];
+    const latest = await loadStore("timers-running", true, {});
+    const clean = pruneStaleTimers(latest);
+    delete clean[me];
     await setEntries([entry, ...entries]);
-    await setRunningTimers(nextTimers);
+    await setRunningTimers(clean);
     setProject(""); setDescription(""); setJustification("");
   }
   async function discardTimer() {
-    const nextTimers = { ...runningTimers };
-    delete nextTimers[me];
-    await setRunningTimers(nextTimers);
+    const latest = await loadStore("timers-running", true, {});
+    const clean = pruneStaleTimers(latest);
+    delete clean[me];
+    await setRunningTimers(clean);
     setConfirmDiscard(false); setJustification(""); setError("");
+  }
+
+  async function clearOtherTimer(emp) {
+    const latest = await loadStore("timers-running", true, {});
+    const clean = pruneStaleTimers(latest);
+    delete clean[emp];
+    await setRunningTimers(clean);
   }
 
   async function addManual() {
@@ -76,7 +101,7 @@ export function TimerTab({ me, employees, entries, setEntries, runningTimers, se
     setManualProject(""); setManualDesc(""); setManualJust(""); setManualStart(""); setManualEnd(""); setManualOpen(false);
   }
 
-  const others = Object.entries(runningTimers).filter(([emp]) => emp !== me);
+  const others = Object.entries(pruneStaleTimers(runningTimers)).filter(([emp]) => emp !== me);
   const manualMins = manualStart && manualEnd ? hmToMinutes(manualEnd) - hmToMinutes(manualStart) : 0;
 
   return (
@@ -151,15 +176,31 @@ export function TimerTab({ me, employees, entries, setEntries, runningTimers, se
       </div>
 
       {others.length > 0 && (
-        <div className="card" style={{ padding: 40, paddingLeft:50, paddingRight: 100 }}>
+        <div className="card" style={{ padding: 40, paddingLeft: 50, paddingRight: 60 }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-soft)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>Currently tracking</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {others.map(([emp, t]) => (
-              <div key={emp} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
-                <span><strong style={{ fontWeight: 500 }}>{emp}</strong> <span style={{ color: "var(--ink-soft)" }}>· {t.project}</span></span>
-                <span className="mono" style={{ color: "var(--amber)" }}>{formatClock((now - new Date(t.startTime).getTime()) / 1000)}</span>
-              </div>
-            ))}
+            {others.map(([emp, t]) => {
+              const sec = (now - new Date(t.startTime).getTime()) / 1000;
+              return (
+                <div key={emp} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
+                  <span><strong style={{ fontWeight: 500 }}>{emp}</strong> <span style={{ color: "var(--ink-soft)" }}>· {t.project}</span></span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span className="mono" style={{ color: "var(--amber)" }}>{formatClock(sec)}</span>
+                    {sec > 8 * 3600 && (
+                      <button
+                        type="button"
+                        className="btn btn-danger"
+                        style={{ padding: "2px 8px", fontSize: 11 }}
+                        title="Clear stuck timer"
+                        onClick={() => clearOtherTimer(emp)}
+                      >
+                        <X size={12} /> Clear
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
