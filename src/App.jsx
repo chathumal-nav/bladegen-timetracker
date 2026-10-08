@@ -63,6 +63,26 @@ function byLoggedTime(a, b) {
   return new Date(a.createdAt) - new Date(b.createdAt);
 }
 
+function byLatest(a, b) { return new Date(b.createdAt) - new Date(a.createdAt); }
+function hmToMinutes(hm) { const [h, m] = String(hm).split(":").map(Number); return h * 60 + m; }
+function clockHM(iso) { return toColombo(iso).slice(11, 16); }
+function fmtLogged(iso) { return toColombo(iso).slice(0, 16); }
+function fmtStart(e) {
+  if (e.workStart) return `${e.date} ${e.workStart}`;
+  // older entries: estimate the start as logged time minus duration (same day only)
+  if (toColombo(e.createdAt).slice(0, 10) === e.date) {
+    const est = toColombo(new Date(new Date(e.createdAt).getTime() - e.minutes * 60000).toISOString());
+    if (est.slice(0, 10) === e.date) return `${e.date} ~${est.slice(11, 16)}`;
+  }
+  return e.date;
+}
+function workRange(e) { return e.workStart && e.workEnd ? `${e.workStart} – ${e.workEnd}` : "–"; }
+function JustCell({ e }) {
+  if (e.justification) return <td style={{ color: "var(--ink-soft)" }}>{e.justification}</td>;
+  if (e.minutes > 30) return <td style={{ color: "var(--brick)" }}>Not provided</td>;
+  return <td style={{ color: "var(--ink-faint)" }}>–</td>;
+}
+
 function csvCell(v) {
   let s = String(v ?? "");
   // stop spreadsheet apps from treating text as a formula
@@ -375,7 +395,7 @@ async function downloadReportPdf(filename, from, to, rows) {
     doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(18, 22, 62);
     doc.text(`${emp}  -  ${minutesToHM(mins)}`, M, y + 4); y += 6;
        table(
-      ["Client", "Task done", "Duration", "Logged at", "Justification (over 30 min)"],
+      ["Client", "Task done", { content: "Duration", styles: { halign: "center" } }, "Logged at", "Justification (over 30 min)"],
       list.map((e) => [
         e.project,
         e.description || "-",
@@ -388,7 +408,7 @@ async function downloadReportPdf(filename, from, to, rows) {
         columnStyles: {
           0: { cellWidth: 28 },
           1: { cellWidth: 42 },
-          2: { cellWidth: 18, halign: "right" },
+          2: { cellWidth: 18, halign: "center" },
           3: { cellWidth: 30 },
         },
         didParseCell: (d) => {
@@ -413,13 +433,17 @@ async function downloadReportPdf(filename, from, to, rows) {
   }
 
   // ---- Summary tables ----
+  const center = (t) => ({ content: t, styles: { halign: "center" } });
+
   heading("Employee summary");
-  table(["Employee", "Hours", "Time", "Entries"], empList.map(([n, m]) => [n, minutesToHours(m), minutesToHM(m), String(countEmp[n])]),
-    { columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" } } });
+  table(["Employee", center("Time"), center("Entries")],
+    empList.map(([n, m]) => [n, minutesToHM(m), String(countEmp[n])]),
+    { columnStyles: { 1: { halign: "center" }, 2: { halign: "center" } } });
 
   heading("Project summary");
-  table(["Project", "Hours", "Time", "Entries"], projList.map(([n, m]) => [n, minutesToHours(m), minutesToHM(m), String(countProj[n])]),
-    { columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" } } });
+  table(["Project", center("Time"), center("Entries")],
+    projList.map(([n, m]) => [n, minutesToHM(m), String(countProj[n])]),
+    { columnStyles: { 1: { halign: "center" }, 2: { halign: "center" } } });
 
   // ---- Page numbers ----
   const pages = doc.getNumberOfPages();
@@ -439,11 +463,8 @@ const DEFAULT_EMPLOYEES = ["Kusan", "Udula", "Chathumal", "Vishva", "Ranindu", "
 async function loadStore(key, shared, fallback) {
   try {
     const res = await window.storage.get(key, shared);
-    const parsed = res ? JSON.parse(res.value) : fallback;
-    console.log(`[load] ${key} (shared=${shared})`, Array.isArray(parsed) ? `${parsed.length} items` : "", parsed);
-    return parsed;
+    return res ? JSON.parse(res.value) : fallback;
   } catch (e) {
-    console.warn(`[load] ${key} failed or not found, using fallback`, e);
     return fallback;
   }
 }
@@ -583,7 +604,9 @@ function useShared(key, fallback) {
 
 function sameEntry(a, b) {
   return a.employee === b.employee && a.project === b.project && a.description === b.description &&
-    (a.justification || "") === (b.justification || "") && a.date === b.date && a.minutes === b.minutes;
+    (a.justification || "") === (b.justification || "") &&
+    (a.workStart || "") === (b.workStart || "") && (a.workEnd || "") === (b.workEnd || "") &&
+    a.date === b.date && a.minutes === b.minutes;
 }
 
 function useEntries() {
@@ -596,7 +619,6 @@ function useEntries() {
     window.timeEntries.list()
       .then((list) => {
         if (!mounted) return;
-        console.log(`[load] time_entries: ${list.length} rows`);
         ref.current = list; setLocal(list); setReady(true);
       })
       .catch((err) => {
@@ -1022,11 +1044,13 @@ function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunnin
   const [manualDate, setManualDate] = useState(ymd(new Date()));
   const [manualProject, setManualProject] = useState("");
   const [manualDesc, setManualDesc] = useState("");
-  const [manualHours, setManualHours] = useState("");
+  const [manualStart, setManualStart] = useState("");
+  const [manualEnd, setManualEnd] = useState("");const [manualHours, setManualHours] = useState("");
   const [manualMinutes, setManualMinutes] = useState("");
   const [error, setError] = useState("");
   const [justification, setJustification] = useState("");
   const [manualJust, setManualJust] = useState("");
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   if (employees.length === 0) {
     return (
@@ -1054,7 +1078,8 @@ function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunnin
     const minutes = Math.max(1, Math.round((Date.now() - startMs) / 60000));
     if (minutes > 30 && !justification.trim()) { setError("This session is over 30 minutes. Add a justification before saving."); return; }
     setError("");
-    const entry = { id: uid(), employee: me, project: t.project, description: t.description, justification: justification.trim(), date: ymd(new Date(t.startTime)), minutes, createdAt: new Date().toISOString() };
+    const endIso = new Date().toISOString();
+    const entry = { id: uid(), employee: me, project: t.project, description: t.description, justification: justification.trim(), date: ymd(new Date(t.startTime)), workStart: clockHM(t.startTime), workEnd: clockHM(endIso), minutes, createdAt: endIso };
     const nextTimers = { ...runningTimers };
     delete nextTimers[me];
     await setEntries([entry, ...entries]);
@@ -1065,23 +1090,24 @@ function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunnin
     const nextTimers = { ...runningTimers };
     delete nextTimers[me];
     await setRunningTimers(nextTimers);
+    setConfirmDiscard(false); setJustification(""); setError("");
   }
 
   async function addManual() {
-    const h = parseFloat(manualHours || "0");
-    const m = parseFloat(manualMinutes || "0");
-    const totalMinutes = Math.round((isNaN(h) ? 0 : h) * 60 + (isNaN(m) ? 0 : m));
+    const mins = manualStart && manualEnd ? hmToMinutes(manualEnd) - hmToMinutes(manualStart) : 0;
     if (!manualProject.trim()) { setError("Enter a project for the manual entry."); return; }
     if (!manualDesc.trim()) { setError("Enter a description for the manual entry."); return; }
-    if (totalMinutes <= 0) { setError("Enter a duration greater than zero."); return; }
-    if (totalMinutes > 30 && !manualJust.trim()) { setError("Entries over 30 minutes need a justification."); return; }
+    if (!manualStart || !manualEnd) { setError("Enter the work start and end times."); return; }
+    if (mins <= 0) { setError("End time must be after start time."); return; }
+    if (mins > 30 && !manualJust.trim()) { setError("Entries over 30 minutes need a justification."); return; }
     setError("");
-    const entry = { id: uid(), employee: me, project: manualProject.trim(), description: manualDesc.trim(), justification: manualJust.trim(), date: manualDate, minutes: totalMinutes, createdAt: new Date().toISOString() };
+    const entry = { id: uid(), employee: me, project: manualProject.trim(), description: manualDesc.trim(), justification: manualJust.trim(), date: manualDate, workStart: manualStart, workEnd: manualEnd, minutes: mins, createdAt: new Date().toISOString() };
     await setEntries([entry, ...entries]);
-    setManualProject(""); setManualDesc(""); setManualJust(""); setManualHours(""); setManualMinutes(""); setManualOpen(false);
+    setManualProject(""); setManualDesc(""); setManualJust(""); setManualStart(""); setManualEnd(""); setManualOpen(false);
   }
 
   const others = Object.entries(runningTimers).filter(([emp]) => emp !== me);
+  const manualMins = manualStart && manualEnd ? hmToMinutes(manualEnd) - hmToMinutes(manualStart) : 0;
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 18 }}>
@@ -1102,7 +1128,7 @@ function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunnin
             {error && <div style={{ display: "flex", gap: 6, alignItems: "center", justifyContent: "center", color: "var(--brick)", fontSize: 12.5, marginTop: 8 }}><AlertCircle size={14} />{error}</div>}
             <div style={{ display: "flex", gap: 8, marginTop: 18, justifyContent: "center" }}>
               <button className="btn btn-primary" onClick={stopTimer}><Square size={14} />Stop and save</button>
-              <button className="btn" onClick={discardTimer}><X size={14} />Discard</button>
+              <button className="btn" onClick={() => setConfirmDiscard(true)}><X size={14} />Discard</button>
             </div>
           </div>
         ) : (
@@ -1142,8 +1168,9 @@ function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunnin
               <option value="">Select a project…</option>
               {PROJECTS.map((p) => <option key={p} value={p}>{p}</option>)}
             </select></div>
-            <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Hours</label><input type="number" min="0" className="field" value={manualHours} onChange={(e) => setManualHours(e.target.value)} style={{ marginTop: 4 }} /></div>
-            <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Minutes</label><input type="number" min="0" max="59" className="field" value={manualMinutes} onChange={(e) => setManualMinutes(e.target.value)} style={{ marginTop: 4 }} /></div>
+            <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Work start time</label><input type="time" className="field" value={manualStart} onChange={(e) => setManualStart(e.target.value)} style={{ marginTop: 4 }} /></div>
+            <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Work end time</label><input type="time" className="field" value={manualEnd} onChange={(e) => setManualEnd(e.target.value)} style={{ marginTop: 4 }} /></div>
+            {manualMins > 0 && <div style={{ gridColumn: "1 / -1", fontSize: 12.5, color: "var(--ink-soft)" }}>Duration: <strong>{minutesToHM(manualMins)}</strong></div>}
             <div style={{ gridColumn: "1 / -1" }}><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Description (required)</label><input className="field" value={manualDesc} onChange={(e) => setManualDesc(e.target.value)} style={{ marginTop: 4 }} /></div>
             <div style={{ gridColumn: "1 / -1" }}><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Justification (required if over 30 minutes)</label><input className="field" value={manualJust} onChange={(e) => setManualJust(e.target.value)} style={{ marginTop: 4 }} /></div>
             {error && <div style={{ gridColumn: "1 / -1", display: "flex", gap: 6, alignItems: "center", color: "var(--brick)", fontSize: 12.5 }}><AlertCircle size={14} />{error}</div>}
@@ -1165,6 +1192,25 @@ function TimerTab({ me, employees, entries, setEntries, runningTimers, setRunnin
           </div>
         </div>
       )}
+
+      
+      {confirmDiscard && myTimer && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(18,22,62,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
+          <div className="card" style={{ maxWidth: 400, width: "100%", padding: 24, textAlign: "center" }}>
+            <AlertCircle size={24} style={{ color: "var(--brick)" }} />
+            <h3 style={{ fontSize: 16, margin: "10px 0 6px" }}>Discard this recording?</h3>
+            <p style={{ fontSize: 13, color: "var(--ink-soft)", margin: "0 0 4px" }}>
+              The time you've tracked on <strong>{myTimer.project}</strong> will not be saved.
+            </p>
+            <p className="mono" style={{ fontSize: 22, fontWeight: 600, margin: "6px 0 16px" }}>{formatClock(elapsedSec)}</p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+              <button className="btn btn-primary" onClick={() => setConfirmDiscard(false)}>Keep recording</button>
+              <button className="btn btn-danger" onClick={discardTimer}><Trash2 size={14} />Yes, discard</button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -1174,10 +1220,10 @@ function TimesheetTab({ me, employees, entries, setEntries, projectSuggestions }
   const [addOpen, setAddOpen] = useState(false);
   const [addDay, setAddDay] = useState(0);
   const [addProject, setAddProject] = useState("");
-  const [addHours, setAddHours] = useState("");
+  const [addStart, setAddStart] = useState("");
+  const [addEnd, setAddEnd] = useState("");
   const [error, setError] = useState("");
   const [addJust, setAddJust] = useState("");
-  const [addMinutes, setAddMinutes] = useState("");
   const [addDesc, setAddDesc] = useState("");
 
   if (employees.length === 0) return <EmptyState title="Add your team first" body="Go to Admin to add teammates before viewing timesheets." />;
@@ -1195,19 +1241,20 @@ function TimesheetTab({ me, employees, entries, setEntries, projectSuggestions }
 
   const dayTotals = dayKeys.map((k) => weekEntries.filter((e) => e.date === k).reduce((s, e) => s + e.minutes, 0));
   const grandTotal = dayTotals.reduce((s, m) => s + m, 0);
+  const addMins = addStart && addEnd ? hmToMinutes(addEnd) - hmToMinutes(addStart) : 0;
+  const myEntries = [...weekEntries].sort(byLatest);
 
-   async function quickAdd() {
-    const h = parseFloat(addHours || "0");
-    const m = parseFloat(addMinutes || "0");
-    const mins = Math.round((isNaN(h) ? 0 : h) * 60 + (isNaN(m) ? 0 : m));
+  async function quickAdd() {
+    const mins = addStart && addEnd ? hmToMinutes(addEnd) - hmToMinutes(addStart) : 0;
     if (!addProject.trim()) { setError("Enter a project."); return; }
     if (!addDesc.trim()) { setError("Enter a description."); return; }
-    if (mins <= 0) { setError("Enter a duration greater than zero."); return; }
+    if (!addStart || !addEnd) { setError("Enter the work start and end times."); return; }
+    if (mins <= 0) { setError("End time must be after start time."); return; }
     if (mins > 30 && !addJust.trim()) { setError("Entries over 30 minutes need a justification."); return; }
     setError("");
-    const entry = { id: uid(), employee: me, project: addProject.trim(), description: addDesc.trim(), justification: addJust.trim(), date: dayKeys[addDay], minutes: mins, createdAt: new Date().toISOString() };
+    const entry = { id: uid(), employee: me, project: addProject.trim(), description: addDesc.trim(), justification: addJust.trim(), date: dayKeys[addDay], workStart: addStart, workEnd: addEnd, minutes: mins, createdAt: new Date().toISOString() };
     await setEntries([entry, ...entries]);
-    setAddProject(""); setAddDesc(""); setAddJust(""); setAddHours(""); setAddMinutes(""); setAddOpen(false);
+    setAddProject(""); setAddDesc(""); setAddJust(""); setAddStart(""); setAddEnd(""); setAddOpen(false);
   }
 
   return (
@@ -1235,12 +1282,13 @@ function TimesheetTab({ me, employees, entries, setEntries, projectSuggestions }
               {PROJECTS.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
           </div>
-          <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Hours</label>
-            <input type="number" min="0" step="1" className="field" value={addHours} onChange={(e) => setAddHours(e.target.value)} style={{ marginTop: 4 }} />
+          <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Work start time</label>
+            <input type="time" className="field" value={addStart} onChange={(e) => setAddStart(e.target.value)} style={{ marginTop: 4 }} />
           </div>
-          <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Minutes</label>
-            <input type="number" min="0" max="59" step="1" className="field" value={addMinutes} onChange={(e) => setAddMinutes(e.target.value)} style={{ marginTop: 4 }} />
+          <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Work end time</label>
+            <input type="time" className="field" value={addEnd} onChange={(e) => setAddEnd(e.target.value)} style={{ marginTop: 4 }} />
           </div>
+          {addMins > 0 && <div style={{ gridColumn: "1 / -1", fontSize: 12.5, color: "var(--ink-soft)" }}>Duration: <strong>{minutesToHM(addMins)}</strong></div>}
           <div><label style={{ fontSize: 11, color: "var(--ink-soft)" }}>Description (required)</label>
             <input className="field" value={addDesc} onChange={(e) => setAddDesc(e.target.value)} style={{ marginTop: 4 }} />
           </div>
@@ -1288,6 +1336,30 @@ function TimesheetTab({ me, employees, entries, setEntries, projectSuggestions }
           </table>
         </div>
       )}
+
+      {myEntries.length > 0 && (
+        <div className="card" style={{ padding: 18, marginTop: 18 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>My entries this week ({myEntries.length})</div>
+          <div className="scrollx">
+            <table>
+              <thead><tr><th>Logged at</th><th>Work started</th><th>Project</th><th>Description</th><th style={{ textAlign: "right" }}>Duration</th><th>Justification</th></tr></thead>
+              <tbody>
+                {myEntries.map((e) => (
+                  <tr key={e.id}>
+                    <td className="mono" style={{ whiteSpace: "nowrap" }}>{fmtLogged(e.createdAt)}</td>
+                    <td className="mono" style={{ whiteSpace: "nowrap" }}>{fmtStart(e)}</td>
+                    <td>{e.project}</td>
+                    <td style={{ color: "var(--ink-soft)" }}>{e.description || "–"}</td>
+                    <td className="mono" style={{ textAlign: "right", whiteSpace: "nowrap" }}>{minutesToHM(e.minutes)}</td>
+                    <JustCell e={e} />
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -1671,7 +1743,7 @@ function AdminTab({ employees, setEmployees, entries, setEntries, runningTimers,
     return { emp, thisWeek, thisMonth, allTime, count: empEntries.length };
   });
 
-  const sortedEntries = [...entries].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  const sortedEntries = [...entries].sort(byLatest);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -1761,19 +1833,21 @@ function AdminTab({ employees, setEmployees, entries, setEntries, runningTimers,
         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>All entries ({entries.length})</div>
         <div className="scrollx" style={{ maxHeight: 420, overflowY: "auto" }}>
           <table>
-            <thead><tr><th>Date</th><th>Employee</th><th>Project</th><th>Description</th><th style={{ textAlign: "right" }}>Duration</th><th></th></tr></thead>
+            <thead><tr><th>Logged at</th><th>Work started</th><th>Employee</th><th>Project</th><th>Description</th><th style={{ textAlign: "right" }}>Duration</th><th>Justification</th><th></th></tr></thead>
             <tbody>
               {sortedEntries.map((e) => (
                 <tr key={e.id}>
-                  <td className="mono" style={{ whiteSpace: "nowrap" }}>{e.date}</td>
+                  <td className="mono" style={{ whiteSpace: "nowrap" }}>{fmtLogged(e.createdAt)}</td>
+                  <td className="mono" style={{ whiteSpace: "nowrap" }}>{fmtStart(e)}</td>
                   <td>{e.employee}</td>
                   <td>{e.project}</td>
                   <td style={{ color: "var(--ink-soft)" }}>{e.description || "–"}</td>
                   <td className="mono" style={{ textAlign: "right", whiteSpace: "nowrap" }}>{minutesToHM(e.minutes)}</td>
+                  <JustCell e={e} />
                   <td style={{ textAlign: "right" }}><button className="btn btn-danger" onClick={() => deleteEntry(e.id)} aria-label="Delete entry"><Trash2 size={13} /></button></td>
                 </tr>
               ))}
-              {sortedEntries.length === 0 && <tr><td colSpan={6} style={{ color: "var(--ink-soft)" }}>No entries recorded yet.</td></tr>}
+              {sortedEntries.length === 0 && <tr><td colSpan={8} style={{ color: "var(--ink-soft)" }}>No entries recorded yet.</td></tr>}
             </tbody>
           </table>
         </div>
