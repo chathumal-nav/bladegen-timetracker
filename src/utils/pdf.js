@@ -1,6 +1,6 @@
 import { toColombo } from "./date";
 import { minutesToHM, minutesToHours } from "./time";
-import { byLoggedTime } from "./entries";
+import { byWorkStartTime, fmtStart } from "./entries";
 import { drawChart, buildTimeChart } from "./chart";
 import { projectColor } from "../constants/projects";
 import { LOGO_SRC } from "../constants/logo";
@@ -79,17 +79,17 @@ export async function downloadReportPdf(filename, from, to, rows) {
   empList.forEach(([emp, mins]) => {
     const list = rows
       .filter((r) => r.employee === emp)
-      .sort(byLoggedTime);
+      .sort(byWorkStartTime);
     ensure(30);
     doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(18, 22, 62);
     doc.text(`${emp}  -  ${minutesToHM(mins)}`, M, y + 4); y += 6;
        table(
-      ["Client", "Task done", { content: "Duration", styles: { halign: "center" } }, "Logged at", "Justification (over 30 min)"],
+      ["Client", "Task done", "Work start time", { content: "Duration", styles: { halign: "center" } }, "Justification (over 30 min)"],
       list.map((e) => [
         e.project,
         e.description || "-",
+        fmtStart(e),
         minutesToHM(e.minutes),
-        toColombo(e.createdAt).slice(0, 16),
         e.minutes > 30 ? (e.justification || "Not provided") : "-",
       ]),
       {
@@ -97,8 +97,8 @@ export async function downloadReportPdf(filename, from, to, rows) {
         columnStyles: {
           0: { cellWidth: 28 },
           1: { cellWidth: 42 },
-          2: { cellWidth: 18, halign: "center" },
-          3: { cellWidth: 30 },
+          2: { cellWidth: 30 },
+          3: { cellWidth: 18, halign: "center" },
         },
         didParseCell: (d) => {
           if (d.section === "body" && d.column.index === 4 && d.cell.raw === "Not provided") d.cell.styles.textColor = [194, 59, 59];

@@ -6,6 +6,22 @@ export function byLoggedTime(a, b) {
   return new Date(a.createdAt) - new Date(b.createdAt);
 }
 
+export function getWorkStartTime(e) {
+  if (e.workStart) {
+    const t = new Date(`${e.date}T${e.workStart}:00`).getTime();
+    if (!isNaN(t)) return t;
+  }
+  if (e.createdAt) {
+    return new Date(e.createdAt).getTime() - (e.minutes || 0) * 60000;
+  }
+  return 0;
+}
+
+export function byWorkStartTime(a, b) {
+  const diff = getWorkStartTime(a) - getWorkStartTime(b);
+  return diff !== 0 ? diff : byLoggedTime(a, b);
+}
+
 export function byLatest(a, b) { return new Date(b.createdAt) - new Date(a.createdAt); }
 
 export function fmtLogged(iso) { return toColombo(iso).slice(0, 16); }
