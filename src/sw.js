@@ -6,7 +6,14 @@ self.skipWaiting();
 clientsClaim();
 cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST);
-registerRoute(new NavigationRoute(createHandlerBoundToURL("/index.html")));
+const offlineNavigationHandler = createHandlerBoundToURL("/index.html");
+registerRoute(new NavigationRoute(async ({ event }) => {
+  try {
+    return await fetch(event.request, { cache: "no-store" });
+  } catch {
+    return offlineNavigationHandler({ event });
+  }
+}));
 // Supabase calls have no route, so they always go straight to the network.
 
 self.addEventListener("push", (event) => {
