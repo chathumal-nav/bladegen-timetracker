@@ -1050,9 +1050,9 @@ function Greeting({ name, now }) {
         <Icon size={26} />
       </div>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ fontSize: 13, color: "var(--ink-soft)" }}>{text},</div>
+        <div style={{ fontSize: 13, color: "var(--ink-soft)", transform: "translateX(-25px)" }}>{text},</div>
         <div className="disp" style={{ fontSize: "clamp(22px, 4.5vw, 30px)", fontWeight: 700, lineHeight: 1.15 }}>{name} 👋</div>
-        <div style={{ fontSize: 12.5, color: "var(--ink-faint)", marginTop: 3 }}>{dateText}</div>
+        <div style={{ fontSize: 12.5, color: "var(--ink-faint)", marginTop: 3, transform: "translateX(-25px)" }}>{dateText}</div>
       </div>
     </div>
   );
