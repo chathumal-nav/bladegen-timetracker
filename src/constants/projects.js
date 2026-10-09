@@ -15,6 +15,7 @@ export const PROJECT_COLORS = {
   "Waves": "#f17528",
   "Celeste": "#e7a64b",
   "Salt House": "#F2C94C",
+  "Police": "#a5960b",
 };
 
 export function projectColor(name) {
@@ -24,4 +25,4 @@ export function projectColor(name) {
   return `hsl(${h} 55% 45%)`;
 }
 
-export const PROJECTS = ["Real Estate Tool", "DeepDish", "Social Listening", "Revello", "Denza", "Stanley", "Barista", "Upali's", "W15", "Roots", "Tilapiya", "StemLink", "Food Studio", "Waves", "Celeste", "Salt House"];
+export const PROJECTS = ["Real Estate Tool", "DeepDish", "Social Listening", "Revello", "Denza", "Stanley", "Barista", "Upali's", "W15", "Roots", "Tilapiya", "StemLink", "Food Studio", "Waves", "Celeste", "Salt House", "Police"];
