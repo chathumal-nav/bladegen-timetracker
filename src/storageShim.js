@@ -90,6 +90,14 @@ window.pushSubs = {
   },
 }
 
+window.auth = {
+  async verify(password) {
+    const { data, error } = await supabase.rpc('verify_employee_password', { p_password: password })
+    if (error) throw error
+    return data === true
+  },
+}
+
 const toRow = (e) => ({
   id: e.id,
   employee: e.employee,

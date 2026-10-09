@@ -12,6 +12,7 @@ import { TimesheetTab } from "./components/timesheet/TimesheetTab";
 import { ReportsTab } from "./components/reports/ReportsTab";
 import { AdminTab } from "./components/admin/AdminTab";
 import { PinGate } from "./components/auth/PinGate";
+import { VerifyGate } from "./components/auth/VerifyGate";
 import { ReminderModal } from "./components/modals/ReminderModal";
 
 const MAX_TIMER_MS = 16 * 60 * 60 * 1000;
@@ -24,6 +25,8 @@ export default function App() {
   const [adminPinLoaded, setAdminPinLoaded] = useState(false);
   const [me, setMe] = useState("");
   const [meReady, setMeReady] = useState(false);
+  const [verified, setVerified] = useState("");
+  const [verifiedReady, setVerifiedReady] = useState(false);
   const [isAdmin, setIsAdminState] = useState(false);
   const [adminReady, setAdminReady] = useState(false);
   const [tab, setTab] = useState("timer");
@@ -38,6 +41,7 @@ export default function App() {
 
   useEffect(() => {
     loadStore("last-employee", false, "").then((v) => { setMe(v || ""); setMeReady(true); });
+    loadStore("verified-employee", false, "").then((v) => { setVerified(v || ""); setVerifiedReady(true); });
     loadStore("is-admin-device", false, false).then((v) => { setIsAdminState(!!v); setAdminReady(true); });
     loadStore("admin-pin", true, "").then(async (v) => {
       if (v) { setAdminPinState(v); } else { await saveStore("admin-pin", true, "kusan4321"); setAdminPinState("kusan4321"); }
@@ -52,6 +56,16 @@ export default function App() {
   async function revokeAdmin() {
     setIsAdminState(false);
     await saveStore("is-admin-device", false, false);
+  }
+
+  function onVerified(name) {
+    setMe(name); saveStore("last-employee", false, name);
+    setVerified(name); saveStore("verified-employee", false, name);
+  }
+  function switchUser() {
+    setVerified(""); saveStore("verified-employee", false, "");
+    revokeAdmin();
+    setTab("timer");
   }
 
   useEffect(() => {
@@ -173,11 +187,12 @@ export default function App() {
     }
   }, [employees, meReady]);
 
-  const allReady = employeesReady && entriesReady && timersReady && meReady && adminPinLoaded && adminReady;
-
+  const allReady = employeesReady && entriesReady && timersReady && meReady && adminPinLoaded && adminReady && verifiedReady;
+  
   function chooseMe(name) {
     setMe(name);
     saveStore("last-employee", false, name);
+    if (verified) { setVerified(name); saveStore("verified-employee", false, name); }
   }
 
   const projectSuggestions = useMemo(() => {
@@ -194,6 +209,11 @@ export default function App() {
     );
   }
 
+  const authed = !!me && verified === me && employees.includes(me);
+  if (!authed) {
+    return <VerifyGate employees={employees} defaultName={me} onVerified={onVerified} />;
+  }
+
   return (
     <div className="ldg">
       <div className="ldg-wrap">
@@ -203,11 +223,11 @@ export default function App() {
             <p style={{ margin: "6px 0 0", fontSize: 18, fontFamily: "var(--font-heading)", color: "var(--ink-soft)", fontWeight: "800" }}>Team time tracking</p>
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
-            <label style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--ink-faint)", fontWeight: "600" }}>You are</label>
-            <select className="field" style={{ width: 190 }} value={me} onChange={(e) => chooseMe(e.target.value)}>
-              <option value="">Select your name…</option>
-              {employees.map((emp) => <option key={emp} value={emp}>{emp}</option>)}
-            </select>
+            <label style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--ink-faint)", fontWeight: "600" }}>Signed in as</label>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <strong style={{ fontSize: 14 }}>{me}</strong>
+              <button type="button" className="btn" style={{ padding: "4px 10px", fontSize: 12 }} onClick={switchUser}>Switch user</button>
+            </div>
 
             {push.supported && push.permission !== "denied" && (
               <div className="switch-row">
