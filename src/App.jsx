@@ -75,11 +75,23 @@ export default function App() {
           const clean = {};
           let hadExpired = false;
           for (const [emp, t] of Object.entries(fresh)) {
-            if (t && t.startTime && (nowMs - new Date(t.startTime).getTime()) < MAX_TIMER_MS) {
-              clean[emp] = t;
-            } else {
+            if (!t || !t.startTime) { hadExpired = true; continue; }
+            const startMs = new Date(t.startTime).getTime();
+            if (isNaN(startMs) || (nowMs - startMs) >= MAX_TIMER_MS) {
               hadExpired = true;
+              continue;
             }
+            // If the employee already has an entry created after this timer started, it was already completed
+            const hasLaterEntry = entries.some((e) => {
+              if (e.employee !== emp) return false;
+              const entryMs = new Date(e.createdAt).getTime();
+              return !isNaN(entryMs) && entryMs >= startMs;
+            });
+            if (hasLaterEntry) {
+              hadExpired = true;
+              continue;
+            }
+            clean[emp] = t;
           }
           setRunningTimers(clean);
           if (hadExpired) {
@@ -103,9 +115,9 @@ export default function App() {
       window.removeEventListener("focus", refreshTimers);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [setRunningTimers]);
+  }, [entries, setRunningTimers]);
 
-  const myRunning = me && runningTimers[me] && (now - new Date(runningTimers[me].startTime).getTime() < MAX_TIMER_MS) ? runningTimers[me] : null;
+  const myRunning = me && runningTimers[me] && (now - new Date(runningTimers[me].startTime).getTime() < MAX_TIMER_MS) && !entries.some(e => e.employee === me && new Date(e.createdAt).getTime() >= new Date(runningTimers[me].startTime).getTime()) ? runningTimers[me] : null;
   useEffect(() => {
     if (!myRunning) { setReminderOpen(false); setLastAck(0); return; }
     if (reminderOpen) return;
@@ -231,6 +243,7 @@ export default function App() {
             me={me} employees={employees} entries={entries} setEntries={setEntries}
             runningTimers={runningTimers} setRunningTimers={setRunningTimers}
             now={now} projectSuggestions={projectSuggestions}
+            isAdmin={isAdmin}
           />
         )}
         {tab === "timesheet" && (
