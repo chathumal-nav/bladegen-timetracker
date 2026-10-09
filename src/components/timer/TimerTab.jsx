@@ -10,7 +10,7 @@ import { EmptyState } from "../common/EmptyState";
 
 const MAX_TIMER_MS = 16 * 60 * 60 * 1000; // 16 hours max threshold for running timer
 
-function pruneStaleTimers(timersMap, allEntries = []) {
+function pruneStaleTimers(timersMap) {
   const nowMs = Date.now();
   const clean = {};
   for (const [emp, t] of Object.entries(timersMap || {})) {
@@ -18,15 +18,6 @@ function pruneStaleTimers(timersMap, allEntries = []) {
     const startMs = new Date(t.startTime).getTime();
     if (isNaN(startMs)) continue;
     if (nowMs - startMs >= MAX_TIMER_MS) continue;
-
-    // Filter out ghost timers if the employee already logged an entry after timer start
-    const hasLaterEntry = (allEntries || []).some((e) => {
-      if (e.employee !== emp) return false;
-      const entryMs = new Date(e.createdAt).getTime();
-      return !isNaN(entryMs) && entryMs >= startMs;
-    });
-    if (hasLaterEntry) continue;
-
     clean[emp] = t;
   }
   return clean;
@@ -56,7 +47,7 @@ export function TimerTab({ me, employees, entries, setEntries, runningTimers, se
     return <EmptyState title="Select your name" body="Pick who you are from the dropdown above to start tracking time." />;
   }
 
-  const cleanRunning = pruneStaleTimers(runningTimers, entries);
+  const cleanRunning = pruneStaleTimers(runningTimers);
   const myTimer = cleanRunning[me] || null;
   const elapsedSec = myTimer ? (now - new Date(myTimer.startTime).getTime()) / 1000 : 0;
 
@@ -65,7 +56,7 @@ export function TimerTab({ me, employees, entries, setEntries, runningTimers, se
     if (!description.trim()) { setError("Enter a description before starting the timer."); return; }
     setError("");
     const latest = await loadStore("timers-running", true, {});
-    const clean = pruneStaleTimers(latest, entries);
+    const clean = pruneStaleTimers(latest);
     clean[me] = { project: project.trim(), description: description.trim(), startTime: new Date().toISOString() };
     await setRunningTimers(clean);
   }
@@ -79,16 +70,15 @@ export function TimerTab({ me, employees, entries, setEntries, runningTimers, se
     const endIso = new Date().toISOString();
     const entry = { id: uid(), employee: me, project: t.project, description: t.description, justification: justification.trim(), date: ymd(new Date(t.startTime)), workStart: clockHM(t.startTime), workEnd: clockHM(endIso), minutes, createdAt: endIso };
     const latest = await loadStore("timers-running", true, {});
-    const nextEntries = [entry, ...entries];
-    const clean = pruneStaleTimers(latest, nextEntries);
+    const clean = pruneStaleTimers(latest);
     delete clean[me];
-    await setEntries(nextEntries);
+    await setEntries([entry, ...entries]);
     await setRunningTimers(clean);
     setProject(""); setDescription(""); setJustification("");
   }
   async function discardTimer() {
     const latest = await loadStore("timers-running", true, {});
-    const clean = pruneStaleTimers(latest, entries);
+    const clean = pruneStaleTimers(latest);
     delete clean[me];
     await setRunningTimers(clean);
     setConfirmDiscard(false); setJustification(""); setError("");
@@ -96,7 +86,7 @@ export function TimerTab({ me, employees, entries, setEntries, runningTimers, se
 
   async function clearOtherTimer(emp) {
     const latest = await loadStore("timers-running", true, {});
-    const clean = pruneStaleTimers(latest, entries);
+    const clean = pruneStaleTimers(latest);
     delete clean[emp];
     await setRunningTimers(clean);
   }
